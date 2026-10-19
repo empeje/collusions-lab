@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.mypy_cache/
+.pytest_cache/
+
+# Secrets — never commit tokens
+*.token
+secrets/
+credentials.json
+
+# Experiment outputs (regenerable; large)
+runs/
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Ollama / model artifacts
+models/
+*.gguf

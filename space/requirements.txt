@@ -1,0 +1,10 @@
+# Space runtime deps. The collusions_lab package is copied into the Space repo root,
+# so it is imported directly (no pip install of the project needed).
+gradio>=4.44
+huggingface_hub>=0.24
+transformers>=4.44
+torch
+pyyaml>=6.0
+requests>=2.31
+pandas
+plotly
