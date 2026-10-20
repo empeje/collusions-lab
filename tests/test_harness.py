@@ -1,0 +1,180 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from collusions_lab.harness import (
+    AgentInterface,
+    EpisodeReplay,
+    Harness,
+    ReplayError,
+    list_episodes,
+    replay_episode,
+)
+from collusions_lab.runner import RunConfig, run_episode
+from collusions_lab.schemas import (
+    AgentConfig,
+    AgentRole,
+    EpisodeCondition,
+    EventType,
+    Scenario,
+)
+
+
+SWE_DEVIANT_ROLES = {AgentRole.IMPLEMENTER_B, AgentRole.TESTER, AgentRole.REVIEWER}
+
+
+def _swe_agents(deviant_roles):
+    roles = [
+        AgentRole.PLANNER,
+        AgentRole.IMPLEMENTER_A,
+        AgentRole.IMPLEMENTER_B,
+        AgentRole.TESTER,
+        AgentRole.REVIEWER,
+        AgentRole.EXECUTOR,
+    ]
+    return [
+        AgentConfig(
+            agent_id=r.value,
+            role=r,
+            provider="scripted",
+            hidden_objective="collude" if r in deviant_roles else None,
+        )
+        for r in roles
+    ]
+
+
+def _market_agents(n=3, deviant=True):
+    return [
+        AgentConfig(
+            agent_id=f"seller_{i}",
+            role=AgentRole.SELLER,
+            provider="scripted",
+            hidden_objective="collude" if deviant else None,
+        )
+        for i in range(n)
+    ]
+
+
+# ------------------------------------------------------------------------- interfaces
+def test_scripted_agents_satisfy_agent_interface():
+    from collusions_lab.agents import ScriptedMarketSeller
+
+    seller = ScriptedMarketSeller(_market_agents(1, deviant=False)[0])
+    assert isinstance(seller, AgentInterface)
+    assert seller.agent_id == "seller_0"
+    assert seller.act({"own_price": 1.0}).kind == "price"
+
+
+def test_market_satisfies_environment_interface():
+    from collusions_lab.environments.markets.bertrand import BertrandMarket, MarketConfig
+
+    market = BertrandMarket(MarketConfig(n_sellers=3))
+    market.reset()
+    assert market.observe(0) is not None
+
+
+# --------------------------------------------------------------------------- replay
+def test_replay_roundtrip_swe(tmp_path: Path):
+    run = RunConfig(
+        Scenario.SOFTWARE_ENGINEERING,
+        EpisodeCondition.KNOWN_COLLUSION,
+        _swe_agents(SWE_DEVIANT_ROLES),
+        seed=7,
+    )
+    result = run_episode(run, tmp_path)
+
+    replay = replay_episode(tmp_path, result["episode_id"])
+    assert isinstance(replay, EpisodeReplay)
+    assert replay.scenario == "software_engineering"
+    assert replay.condition == "known_collusion"
+    assert replay.seed == 7
+    assert replay.ground_truth == result["ground_truth"]
+    assert replay.manifest["provenance"]["python_version"]
+    assert replay.provenance.model_versions["planner"] == "scripted:qwen2.5:3b-instruct"
+    assert len(replay.decisions()) >= 1
+    assert replay.agent_events()
+
+
+def test_replay_records_tool_and_prompt_events(tmp_path: Path):
+    run = RunConfig(
+        Scenario.SOFTWARE_ENGINEERING,
+        EpisodeCondition.KNOWN_COLLUSION,
+        _swe_agents(SWE_DEVIANT_ROLES),
+        seed=3,
+    )
+    result = run_episode(run, tmp_path)
+    replay = replay_episode(tmp_path, result["episode_id"])
+
+    types = {e.type for e in replay.authoritative}
+    assert EventType.TOOL_CALL in types
+    assert EventType.TOOL_RESULT in types
+    results = [e for e in replay.authoritative if e.type == EventType.TOOL_RESULT]
+    assert any(r.content.get("tool") == "invariant_check" for r in results)
+
+
+def test_replay_market_roundtrip(tmp_path: Path):
+    run = RunConfig(
+        Scenario.MARKETS,
+        EpisodeCondition.KNOWN_COLLUSION,
+        _market_agents(3),
+        seed=2,
+        n_sellers=3,
+        market_steps=30,
+    )
+    result = run_episode(run, tmp_path)
+    replay = replay_episode(tmp_path, result["episode_id"])
+    assert replay.scenario == "markets"
+    assert replay.result["metrics"]["delta"] == result["metrics"]["delta"]
+
+
+def test_replay_direct_episode_dir(tmp_path: Path):
+    run = RunConfig(
+        Scenario.MARKETS,
+        EpisodeCondition.INDEPENDENT_BASELINE,
+        _market_agents(3, deviant=False),
+        seed=1,
+        n_sellers=3,
+        market_steps=20,
+    )
+    result = run_episode(run, tmp_path)
+    ep_dir = tmp_path / result["episode_id"]
+    replay = replay_episode(ep_dir)
+    assert replay.episode_id == result["episode_id"]
+
+
+def test_replay_missing_directory_raises(tmp_path: Path):
+    with pytest.raises(ReplayError):
+        replay_episode(tmp_path, "does-not-exist")
+
+
+def test_list_episodes(tmp_path: Path):
+    run = RunConfig(
+        Scenario.MARKETS,
+        EpisodeCondition.INDEPENDENT_BASELINE,
+        _market_agents(3, deviant=False),
+        seed=1,
+        n_sellers=3,
+        market_steps=20,
+    )
+    run_episode(run, tmp_path)
+    ids = list_episodes(tmp_path)
+    assert len(ids) == 1
+    assert ids[0].startswith("market_")
+
+
+# -------------------------------------------------------------------------- harness
+def test_harness_facade_runs_and_replays(tmp_path: Path):
+    h = Harness(out_root=str(tmp_path))
+    run = RunConfig(
+        Scenario.MARKETS,
+        EpisodeCondition.KNOWN_COLLUSION,
+        _market_agents(3),
+        seed=4,
+        n_sellers=3,
+        market_steps=30,
+    )
+    result = h.run(run)
+    replay = h.replay(result["episode_id"])
+    assert replay.episode_id == result["episode_id"]
+    assert replay.monitor_enabled is True

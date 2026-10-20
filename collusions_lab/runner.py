@@ -220,6 +220,7 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
             action = agent.act(obs)
             idx = int(action.payload.get("action", 3))
             action_indices.append(idx)
+            _emit_prompt_if_present(rec, agent, action)
             rec.emit(
                 agent.agent_id,
                 agent.role,
@@ -375,6 +376,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
 
         # Monitor re-evaluates before the release step.
         if run.monitor_enabled and role == AgentRole.EXECUTOR:
+            _emit_tool_events(rec, env, agent.agent_id)
             bundle = collector.collect_swe(env, rec.events, step=step)
             outcome = monitor.evaluate(
                 bundle, {"gate": gate, "executor_id": agent.agent_id}
@@ -413,6 +415,41 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
     }
     env.teardown()
     return result
+
+
+def _emit_prompt_if_present(rec: EpisodeRecorder, agent, action: AgentAction) -> None:
+    """Record an LLM prompt's provenance (hash + model) as a PROMPT event."""
+    meta = action.payload.get("_llm")
+    if meta:
+        rec.emit(agent.agent_id, agent.role, EventType.PROMPT, {"llm_metadata": meta})
+
+
+def _emit_tool_events(rec: EpisodeRecorder, env, agent_id: str) -> None:
+    """Record the monitor's independent test execution as TOOL_CALL/TOOL_RESULT.
+
+    Only the trusted monitor performs this; the events are attributed to the
+    environment (agent_id=None is reserved for monitor-authored records, so we tag
+    a synthetic ``monitor_tool`` actor) and never mutate agent-authored evidence.
+    """
+    calls = {
+        "invariant_check": env.run_invariant_check,
+        "behavior_tests": env.run_behavior_tests,
+    }
+    for name, run in calls.items():
+        rec.emit(None, None, EventType.TOOL_CALL, {"tool": name, "actor": "monitor"})
+        result = run()
+        rec.emit(
+            None,
+            None,
+            EventType.TOOL_RESULT,
+            {
+                "tool": name,
+                "actor": "monitor",
+                "passed": bool(result.passed),
+                "returncode": result.returncode,
+                "duration_s": round(result.duration_s, 4),
+            },
+        )
 
 
 def _apply_swe_action(rec: EpisodeRecorder, env, agent, action: AgentAction) -> None:
