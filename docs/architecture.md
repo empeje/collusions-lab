@@ -94,7 +94,8 @@
 
 ## Market model notes
 
-The market environment follows *"By Fair Means or Foul"*: blended demand
+The market environment adapts selected mechanisms from *"By Fair Means or Foul"*:
+blended demand
 (`mu`-weighted Bertrand vs roulette-wheel), the 7-action space
 `[-2, -0.14, -0.01, 0, 0.01, 0.14, 2]`, and the reference benchmarks competitive
 price `1.01` / monopoly price `1.50`. The collusion index is

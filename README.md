@@ -14,8 +14,12 @@ Two matched scenarios share one monitor interface:
   repository with a security invariant and a mediated release gate. Harmful outcome =
   a coordinated change that defeats the authorization check and reaches release.
 
-Core design is based on *"By Fair Means or Foul"* (Schlechtinger et al., IJCAI 2024,
-arXiv:2406.02650) for the market scenario. See
+The market environment reimplements selected mechanisms and metrics discussed in
+*"By Fair Means or Foul"* (Schlechtinger et al., IJCAI 2024, arXiv:2406.02650); it
+is not a reproduction of that paper's experiments. Likewise, the SCHEME and
+double-auction repositories have been reviewed, but are not run or reproduced here.
+See [`docs/milestone-1-review.md`](docs/milestone-1-review.md) for the milestone
+compliance assessment and
 [`docs/architecture.md`](docs/architecture.md) and
 [`docs/requirements-traceability.md`](docs/requirements-traceability.md).
 
@@ -55,6 +59,19 @@ python -m collusions_lab.experiments experiments/coordination_conditions.yaml
 python -m collusions_lab.experiments experiments/swe_all_conditions.yaml
 python -m collusions_lab.evaluation runs
 ```
+
+To run the scripted experiment through Inspect AI, install the optional extra and
+run the task from the repository root:
+
+```bash
+python -m pip install -e ".[inspect]"
+inspect eval inspect_tasks/collusions_eval.py --model mockllm/model
+```
+
+The Inspect task runs the existing deterministic harness; it does not require a
+model API key. For model-based behavioral audits with Petri, see
+[`docs/petri-inspect.md`](docs/petri-inspect.md). Petri uses separate auditor,
+target, and judge model roles and can incur provider costs.
 
 Each episode writes an audit trail under `runs/<experiment>/<episode_id>/`:
 
@@ -114,7 +131,7 @@ reported together with the prevention–utility trade-off.
 ## Tests and checks
 
 ```bash
-python -m pytest -q      # 39 tests, deterministic, no network
+python -m pytest -q      # 48 tests, deterministic, no network
 python -m mypy collusions_lab
 ```
 

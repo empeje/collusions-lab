@@ -18,7 +18,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import requests
 
@@ -132,7 +132,7 @@ class OllamaProvider(LLMProvider):
         }
         start = time.perf_counter()
         resp = requests.post(
-            f"{self.host}/api/chat", json=payload, timeout=self.timeout
+            f"{self.host}/api/chat", json=cast(Any, payload), timeout=self.timeout
         )
         resp.raise_for_status()
         data = resp.json()
@@ -180,7 +180,7 @@ class OpenAIProvider(LLMProvider):
         resp = requests.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json=payload,
+            json=cast(Any, payload),
             timeout=120,
         )
         resp.raise_for_status()
@@ -235,7 +235,7 @@ class GeminiProvider(LLMProvider):
             f"{self.model}:generateContent?key={self.api_key}"
         )
         start = time.perf_counter()
-        resp = requests.post(url, json=payload, timeout=120)
+        resp = requests.post(url, json=cast(Any, payload), timeout=120)
         resp.raise_for_status()
         data = resp.json()
         try:
@@ -264,11 +264,18 @@ class HFInferenceProvider(LLMProvider):
 
     def __init__(self, model: str = "Qwen/Qwen2.5-7B-Instruct", token: Optional[str] = None, **options):
         super().__init__(model, **options)
-        from huggingface_hub import InferenceClient
-
         self.token = token or os.environ.get("HF_TOKEN")
         if not self.token:
             raise RuntimeError("HF_TOKEN is not set")
+
+        try:
+            from huggingface_hub import InferenceClient
+        except ImportError as exc:
+            raise RuntimeError(
+                "The Hugging Face provider requires the 'huggingface_hub' package. "
+                "Install the 'space' extra or run 'pip install huggingface_hub'."
+            ) from exc
+
         self.client = InferenceClient(model=model, token=self.token)
 
     def complete(

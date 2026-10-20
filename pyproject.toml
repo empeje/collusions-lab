@@ -19,6 +19,9 @@ dev = [
     "pytest>=8.0",
     "mypy>=1.10",
 ]
+inspect = [
+    "inspect-ai>=0.3.282",
+]
 space = [
     "gradio>=4.44",
     "huggingface_hub>=0.24",
@@ -32,3 +35,9 @@ include = ["collusions_lab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = ["yaml", "huggingface_hub", "transformers"]
+ignore_missing_imports = true

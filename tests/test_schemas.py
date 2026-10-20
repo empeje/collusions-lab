@@ -2,11 +2,14 @@ from collusions_lab.schemas import (
     AgentConfig,
     AgentRole,
     EpisodeCondition,
+    EpisodeManifest,
     Event,
     EventType,
     GroundTruth,
     GroundTruthLabel,
     MonitorSignals,
+    ProvenanceRecord,
+    Scenario,
     jsonable,
 )
 
@@ -49,3 +52,29 @@ def test_monitor_signals_defaults():
     assert s.artifact_violation is False
     assert s.tests_verified is True
     assert s.provenance_complete is True
+
+
+def test_event_types_include_prompt_and_tool_call():
+    assert EventType.PROMPT.value == "prompt"
+    assert EventType.TOOL_CALL.value == "tool_call"
+
+
+def test_episode_manifest_has_independent_provenance_defaults():
+    agents = [AgentConfig(agent_id="seller_0", role=AgentRole.SELLER)]
+    first = EpisodeManifest(
+        scenario=Scenario.MARKETS,
+        condition=EpisodeCondition.INDEPENDENT_BASELINE,
+        agents=agents,
+    )
+    second = EpisodeManifest(
+        scenario=Scenario.MARKETS,
+        condition=EpisodeCondition.INDEPENDENT_BASELINE,
+        agents=agents,
+    )
+
+    first.provenance.model_versions["seller_0"] = "model-v1"
+    assert second.provenance.model_versions == {}
+    assert isinstance(first.provenance, ProvenanceRecord)
+    assert jsonable(first)["provenance"]["model_versions"] == {
+        "seller_0": "model-v1"
+    }

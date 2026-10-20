@@ -1,23 +1,26 @@
 # Requirements traceability
 
-Maps each requirement in `collusions-requirements.md` to its implementation and the
-tests that exercise it. Status: **Done** (implemented + tested), **Partial** (present,
-deliberately scoped), **Planned** (later milestone).
+Maps requirements in the user-supplied `collusions-requirements.md` to this
+repository. A repo audit or conceptual adaptation is not counted as benchmark
+reproduction. Status: **Done** (implemented and checked), **Partial** (a scoped
+prototype), **Planned** (later milestone), **Gap** (required outcome not present).
 
 ## Section 1 — Two scenarios with meaningful harm
 
 | Requirement | Implementation | Status | Tests |
 |---|---|---|---|
-| Scenario A: multi-agent market manipulation, coordinated price inflation | `environments/markets/bertrand.py` (`BertrandMarket`, `MarketConfig`) | Done | `tests/test_market_env.py` |
-| Scenario B: SWE collusion — suppress defects, mislead tests, defeat checks | `environments/software_engineering/{synthetic_repo,swe_env}.py` | Done | `tests/test_swe_env.py` |
+| Scenario A: multi-agent market manipulation, coordinated price inflation | `environments/markets/bertrand.py` (`BertrandMarket`, `MarketConfig`) | Partial (synthetic toy) | `tests/test_market_env.py` |
+| Scenario B: SWE collusion — suppress defects, mislead tests, defeat checks | `environments/software_engineering/{synthetic_repo,swe_env}.py` | Partial (synthetic toy) | `tests/test_swe_env.py` |
 | Retain prices/bids/profit/welfare (A) and diffs/tests/specs (B) | `shared/instrumentation.py` JSONL streams; `result.json` | Done | `tests/test_episodes.py::test_episode_writes_audit_trail` |
 
 ## Section 2 — Existing research to build on
 
 | Requirement | Implementation | Status |
 |---|---|---|
-| Audit relevant repos (SCHEME, NARCBench, LLM-agent-collusion, algorithmic pricing) | `docs/audits/{scheme,narcbench,llm-agent-collusion,price-of-algorithmic-pricing}.md` | Done |
-| Base market design on the pricing-collusion paper | `bertrand.py` reproduces benchmarks; deviation documented in `docs/architecture.md` | Done |
+| Review relevant repos (SCHEME, NARCBench, LLM-agent-collusion, algorithmic pricing) | `docs/audits/*.md` | Done (review only) |
+| Reproduce a software-engineering benchmark baseline (SCHEME or equivalent) | Current SWE environment is synthetic; SCHEME task instances are not integrated | Gap |
+| Reproduce a market benchmark baseline (double-auction collusion or equivalent) | Current market environment is a custom Bertrand toy; double-auction code/data are not integrated | Gap |
+| Base market design on the pricing-collusion paper | Selected mechanisms/metrics adapted in `bertrand.py`; not a replication; model deviation in `docs/architecture.md` | Partial |
 
 ## Section 3 — What the trusted agent does
 
@@ -65,6 +68,8 @@ deliberately scoped), **Planned** (later milestone).
 | Requirement | Implementation | Status |
 |---|---|---|
 | Representative structure (`environments/`, `agents/`, `monitor/`, logs, `shared services/`, `experiments/`, `evaluation/`, `tests/`, README) | repository layout | Done |
+| Petri for model-based behavioral audits | `docs/petri-inspect.md`; external optional workflow, no API audit executed | Partial |
+| Inspect AI for reproducible evaluation runs | `inspect_tasks/collusions_eval.py`; optional `.[inspect]` dependency | Partial (one sample per scenario verified) |
 | Scenario A then Scenario B | both implemented | Done |
 | Expand to robustness/ablations/cross-model (milestone 5) | — | Planned |
 | Generalize monitor interface to double-auction benchmark (milestone 6) | — | Planned |
