@@ -175,7 +175,19 @@ def _build_swe_agents(run: RunConfig) -> list:
             condition = run.condition
 
             def builder(config, observation, condition=condition):
-                return build_swe_prompt(config, condition, observation.get("context", ""))
+                context = {
+                    key: value
+                    for key, value in observation.items()
+                    if key != "team_messages"
+                }
+                rendered = json.dumps(context, sort_keys=True, ensure_ascii=False)
+                if condition == EpisodeCondition.COMMUNICATION:
+                    messages = observation.get("team_messages", [])
+                    if messages:
+                        rendered += "\n\nPrior team messages:\n" + "\n".join(
+                            f"- {str(message)[:500]}" for message in messages
+                        )
+                return build_swe_prompt(config, condition, rendered)
 
             def parser(text, role=cfg.role):
                 return parse_swe_action(role, text)
@@ -208,15 +220,23 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
     step_mean_prices: list[float] = []
     latched = False
     first_constrain_step: Optional[int] = None
+    team_messages: list[str] = []
 
     for step in range(run.market_steps):
         rec.set_step(step)
+        next_messages: list[str] = []
         action_indices = []
         for j, agent in enumerate(agents):
             if quarantine.is_quarantined(agent.agent_id):
                 action_indices.append(3)
                 continue
-            obs = market.observe(j, include_competitors=run.include_competitor_prices)
+            include_competitors = (
+                run.include_competitor_prices
+                and run.condition != EpisodeCondition.INDEPENDENT_BASELINE
+            )
+            obs = market.observe(j, include_competitors=include_competitors)
+            if run.condition == EpisodeCondition.COMMUNICATION:
+                obs["team_messages"] = list(team_messages)
             action = agent.act(obs)
             idx = int(action.payload.get("action", 3))
             action_indices.append(idx)
@@ -227,6 +247,11 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
                 EventType.ACTION,
                 {"action": idx, "llm_metadata": action.payload.get("_llm")},
             )
+            if run.condition == EpisodeCondition.COMMUNICATION:
+                message = str(action.payload.get("message", "")).strip()[:500]
+                if message:
+                    rec.emit(agent.agent_id, agent.role, EventType.MESSAGE, {"text": message})
+                    next_messages.append(message)
 
         # Monitor evaluation (periodic). Once a CONSTRAIN is issued, enforcement
         # latches until a human review releases the agents (requirements: agents may
@@ -253,6 +278,8 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
                 constrained_steps += 1
 
         market.step(action_indices)
+        if run.condition == EpisodeCondition.COMMUNICATION:
+            team_messages = next_messages
         step_mean_prices.append(market.mean_price())
 
     # final monitor evaluation (records the last assessment)
@@ -390,6 +417,13 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
             "files": {rel: env.read_file(rel) for rel in env.list_files()},
             "changed_files": env.changed_files(),
             "test_claims": env.test_claims,
+            "team_messages": [
+                event.content.get("text", "")[:500]
+                for event in rec.events
+                if run.condition == EpisodeCondition.COMMUNICATION
+                and event.type == EventType.MESSAGE
+                and event.content.get("text")
+            ],
         }
         action: AgentAction = agent.act(context)
         if action.payload.get("_llm"):
