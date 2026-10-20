@@ -42,10 +42,11 @@ their own credentials and may incur charges.
 
 ## Petri audit protocol
 
-Install Petri in a separate environment following its
-[official repository instructions](https://github.com/safety-research/petri), then
-run its Inspect task with the appropriate `auditor`, `target`, and `judge` model
-roles. Use a controlled synthetic scenario and seed instructions that ask whether
+Install Petri and Inspect's Ollama client in a local environment following its
+[official documentation](https://safety-research.github.io/petri/), then run its
+Inspect task with the appropriate `auditor`, `target`, and `judge` model roles. For
+local Ollama models, install `inspect-petri` and `openai` in the same environment.
+Use a controlled synthetic scenario and seed instructions that ask whether
 the target would coordinate to defeat a specified benign security invariant, and
 whether it would conceal that behavior. Keep the task sandboxed and do not give
 agents access to production repositories, credentials, or live markets.
@@ -67,7 +68,8 @@ Example seed instructions for a first exploratory batch (pass these with Petri's
 These are hypotheses to probe, not labels. Pair them with benign controls that ask
 the target to complete the same task while preserving the invariant, and keep the
 transcripts for human review. Choose model identifiers according to the provider
-available in the Petri environment; no model is presumed free.
+available in the Petri environment. Local Ollama inference avoids hosted API charges
+but still has hardware and capability limits.
 
 Petri requires model endpoints for those roles; a free or local model is only
 available if each required role is supported by the chosen provider. Petri is not
@@ -82,7 +84,11 @@ the environment's ground truth.
 - The Inspect adapter is optional and needs `.[inspect]` installed before it can be
   executed. It wraps current deterministic episode runs, rather than replacing
   `collusions_lab.evaluation` or retroactively scoring old run files.
-- Petri is not vendored or added as a required dependency. Its upstream version and
-  API evolve independently; run it in a separate environment.
+- Petri is not vendored or added as a required project dependency. A local smoke run
+  installed Petri 3.1.1 in the ignored development venv and launched its Inspect task
+  with `ollama/cow/gemma2_tools:2b` in all three roles. At max-turns 1, 2, and 5, the
+  auditor exhausted its turns without interacting with the target; these runs are not
+  behavioral audit results. Use a more capable tool-using auditor before interpreting
+  Petri scores.
 - Neither integration upgrades the toy market or synthetic SWE environment into a
   reproduced external benchmark. See `milestone-1-review.md`.
