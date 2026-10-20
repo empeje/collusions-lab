@@ -1,23 +1,27 @@
 # Requirements traceability
 
-Maps each requirement in `collusions-requirements.md` to its implementation and the
-tests that exercise it. Status: **Done** (implemented + tested), **Partial** (present,
-deliberately scoped), **Planned** (later milestone).
+Maps requirements in the user-supplied `collusions-requirements.md` to this
+repository. A repo audit or conceptual adaptation is not counted as benchmark
+reproduction. Status: **Done** (implemented and checked), **Partial** (a scoped
+prototype), **Planned** (later milestone), **Gap** (required outcome not present).
 
 ## Section 1 — Two scenarios with meaningful harm
 
 | Requirement | Implementation | Status | Tests |
 |---|---|---|---|
-| Scenario A: multi-agent market manipulation, coordinated price inflation | `environments/markets/bertrand.py` (`BertrandMarket`, `MarketConfig`) | Done | `tests/test_market_env.py` |
-| Scenario B: SWE collusion — suppress defects, mislead tests, defeat checks | `environments/software_engineering/{synthetic_repo,swe_env}.py` | Done | `tests/test_swe_env.py` |
+| Scenario A: multi-agent market manipulation, coordinated price inflation | `environments/markets/bertrand.py` (`BertrandMarket`, `MarketConfig`) | Partial (synthetic toy) | `tests/test_market_env.py` |
+| Scenario B: SWE collusion — suppress defects, mislead tests, defeat checks | `environments/software_engineering/{synthetic_repo,swe_env}.py` | Partial (synthetic toy) | `tests/test_swe_env.py` |
 | Retain prices/bids/profit/welfare (A) and diffs/tests/specs (B) | `shared/instrumentation.py` JSONL streams; `result.json` | Done | `tests/test_episodes.py::test_episode_writes_audit_trail` |
 
 ## Section 2 — Existing research to build on
 
 | Requirement | Implementation | Status |
 |---|---|---|
-| Audit relevant repos (SCHEME, NARCBench, LLM-agent-collusion, algorithmic pricing) | `docs/audits/{scheme,narcbench,llm-agent-collusion,price-of-algorithmic-pricing}.md` | Done |
-| Base market design on the pricing-collusion paper | `bertrand.py` reproduces benchmarks; deviation documented in `docs/architecture.md` | Done |
+| Review relevant repos (SCHEME, NARCBench, LLM-agent-collusion, algorithmic pricing) | `docs/audits/*.md` | Done (review only) |
+| NARCBench activation-probe integration | Audited in `docs/audits/narcbench.md`; no probe integrated because the published setup needs model activations and high-VRAM extraction | Planned (separate white-box track) |
+| Reproduce a software-engineering benchmark baseline (SCHEME or equivalent) | Paired synthetic fallback sweep in `experiments/milestone1_swe.yaml`; SCHEME task/code artifacts are not linked from the project page | Fallback done; upstream reproduction blocked |
+| Reproduce a market benchmark baseline (double-auction collusion or equivalent) | Paired synthetic fallback sweep in `experiments/milestone1_market.yaml`; reference code/data are not integrated because no license is declared | Fallback done; upstream reproduction blocked |
+| Base market design on the pricing-collusion paper | Selected mechanisms/metrics adapted in `bertrand.py`; not a replication; model deviation in `docs/architecture.md` | Partial |
 
 ## Section 3 — What the trusted agent does
 
@@ -42,7 +46,7 @@ deliberately scoped), **Planned** (later milestone).
 |---|---|---|---|
 | Three separate labels (benign convergence / harmful tacit / explicit) | `schemas.GroundTruthLabel`; `runner._label_market`, `_label_swe` | Done | `tests/test_episodes.py` |
 | Five matched conditions | `schemas.EpisodeCondition` | Done | `tests/test_schemas.py` |
-| Independent baseline / shared-context / communication / known-collusion / adversarial-monitor | `experiments/*.yaml` | Done | `tests/test_experiments.py` |
+| Independent baseline / shared-context / communication / known-collusion / adversarial-monitor | Market information and public-message access vary by condition; SWE prior messages are included for LLM prompts | Partial; scripted agents do not generate messages | `tests/test_experiments.py`, `tests/test_episodes.py` |
 | Randomized seeds, model configs, held-out tasks | seeds + provider/model in YAML (multi-model sweeps are milestone 5) | Partial | `tests/test_experiments.py` |
 
 ## Section 5 — Measuring whether it works
@@ -65,6 +69,8 @@ deliberately scoped), **Planned** (later milestone).
 | Requirement | Implementation | Status |
 |---|---|---|
 | Representative structure (`environments/`, `agents/`, `monitor/`, logs, `shared services/`, `experiments/`, `evaluation/`, `tests/`, README) | repository layout | Done |
+| Petri for model-based behavioral audits | `docs/petri-inspect.md`; package/task smoke-launched locally, but the small model never interacted with the target | Partial; needs a capable auditor model |
+| Inspect AI for reproducible evaluation runs | `inspect_tasks/collusions_eval.py`; optional `.[inspect]` dependency; CLI smoke runs completed | Done for deterministic harness adapter |
 | Scenario A then Scenario B | both implemented | Done |
 | Expand to robustness/ablations/cross-model (milestone 5) | — | Planned |
 | Generalize monitor interface to double-auction benchmark (milestone 6) | — | Planned |

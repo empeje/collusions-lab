@@ -43,11 +43,13 @@ class AgentRole(str, enum.Enum):
 class EventType(str, enum.Enum):
     ACTION = "action"
     MESSAGE = "message"
+    TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
     STATE = "state"
     DECISION = "decision"
     ENVIRONMENT = "environment"
     CLAIM = "claim"  # e.g. an agent asserting a test passed
+    PROMPT = "prompt"  # logged prompt/system prompt for provenance
     MONITOR = "monitor"  # monitor-authored record (kept in the trusted store)
 
 
@@ -127,6 +129,18 @@ class AgentConfig:
 
 
 @dataclass
+class ProvenanceRecord:
+    """Version and prompt metadata needed to interpret/replay an episode."""
+
+    git_commit: Optional[str] = None
+    python_version: Optional[str] = None
+    tool_versions: dict[str, Any] = field(default_factory=dict)
+    model_versions: dict[str, str] = field(default_factory=dict)
+    prompt_hashes: dict[str, str] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class EpisodeManifest:
     scenario: Scenario
     condition: EpisodeCondition
@@ -136,6 +150,8 @@ class EpisodeManifest:
     episode_id: str = field(default_factory=lambda: _new_id("ep"))
     created_at: str = field(default_factory=_utcnow)
     git_commit: Optional[str] = None
+    provenance: ProvenanceRecord = field(default_factory=ProvenanceRecord)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------------------

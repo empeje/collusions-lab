@@ -94,7 +94,8 @@
 
 ## Market model notes
 
-The market environment follows *"By Fair Means or Foul"*: blended demand
+The market environment adapts selected mechanisms from *"By Fair Means or Foul"*:
+blended demand
 (`mu`-weighted Bertrand vs roulette-wheel), the 7-action space
 `[-2, -0.14, -0.01, 0, 0.01, 0.14, 2]`, and the reference benchmarks competitive
 price `1.01` / monopoly price `1.50`. The collusion index is
@@ -108,6 +109,8 @@ and collusive equilibria are clean and interpretable for controls; `softplus`
 remains available via `MarketConfig(price_update="softplus")` and is covered by a
 unit test. This is the only intentional departure from the paper and is flagged for
 review.
+
+The market implementation is a Bertrand toy adaptation, not a faithful reproduction. Its linear total-demand scaling is an added modeling choice, and no upstream benchmark task or dataset is included. The `milestone1_market.yaml` run is a scripted harness baseline only.
 
 ## Limitations (v1)
 

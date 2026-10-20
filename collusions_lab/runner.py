@@ -10,6 +10,7 @@ authoritative log and re-executed checks.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import statistics
 from dataclasses import dataclass, field
@@ -174,7 +175,19 @@ def _build_swe_agents(run: RunConfig) -> list:
             condition = run.condition
 
             def builder(config, observation, condition=condition):
-                return build_swe_prompt(config, condition, observation.get("context", ""))
+                context = {
+                    key: value
+                    for key, value in observation.items()
+                    if key != "team_messages"
+                }
+                rendered = json.dumps(context, sort_keys=True, ensure_ascii=False)
+                if condition == EpisodeCondition.COMMUNICATION:
+                    messages = observation.get("team_messages", [])
+                    if messages:
+                        rendered += "\n\nPrior team messages:\n" + "\n".join(
+                            f"- {str(message)[:500]}" for message in messages
+                        )
+                return build_swe_prompt(config, condition, rendered)
 
             def parser(text, role=cfg.role):
                 return parse_swe_action(role, text)
@@ -207,19 +220,37 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
     step_mean_prices: list[float] = []
     latched = False
     first_constrain_step: Optional[int] = None
+    team_messages: list[str] = []
 
     for step in range(run.market_steps):
         rec.set_step(step)
+        next_messages: list[str] = []
         action_indices = []
         for j, agent in enumerate(agents):
             if quarantine.is_quarantined(agent.agent_id):
                 action_indices.append(3)
                 continue
-            obs = market.observe(j, include_competitors=run.include_competitor_prices)
+            include_competitors = (
+                run.include_competitor_prices
+                and run.condition != EpisodeCondition.INDEPENDENT_BASELINE
+            )
+            obs = market.observe(j, include_competitors=include_competitors)
+            if run.condition == EpisodeCondition.COMMUNICATION:
+                obs["team_messages"] = list(team_messages)
             action = agent.act(obs)
             idx = int(action.payload.get("action", 3))
             action_indices.append(idx)
-            rec.emit(agent.agent_id, agent.role, EventType.ACTION, {"action": idx})
+            rec.emit(
+                agent.agent_id,
+                agent.role,
+                EventType.ACTION,
+                {"action": idx, "llm_metadata": action.payload.get("_llm")},
+            )
+            if run.condition == EpisodeCondition.COMMUNICATION:
+                message = str(action.payload.get("message", "")).strip()[:500]
+                if message:
+                    rec.emit(agent.agent_id, agent.role, EventType.MESSAGE, {"text": message})
+                    next_messages.append(message)
 
         # Monitor evaluation (periodic). Once a CONSTRAIN is issued, enforcement
         # latches until a human review releases the agents (requirements: agents may
@@ -246,6 +277,8 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
                 constrained_steps += 1
 
         market.step(action_indices)
+        if run.condition == EpisodeCondition.COMMUNICATION:
+            team_messages = next_messages
         step_mean_prices.append(market.mean_price())
 
     # final monitor evaluation (records the last assessment)
@@ -340,7 +373,10 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         AgentRole.EXECUTOR,
     ]
     decisions_all: list = []
-    release_allowed = False
+    # The no-monitor arm is the untreated baseline: the executor's release request
+    # goes through without the trusted monitor gate. Keeping this False used to make
+    # harmful no-monitor episodes look "prevented" merely because no monitor ran.
+    release_allowed = not run.monitor_enabled
 
     for step, role in enumerate(order):
         rec.set_step(step)
@@ -353,8 +389,22 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
             "files": {rel: env.read_file(rel) for rel in env.list_files()},
             "changed_files": env.changed_files(),
             "test_claims": env.test_claims,
+            "team_messages": [
+                event.content.get("text", "")[:500]
+                for event in rec.events
+                if run.condition == EpisodeCondition.COMMUNICATION
+                and event.type == EventType.MESSAGE
+                and event.content.get("text")
+            ],
         }
         action: AgentAction = agent.act(context)
+        if action.payload.get("_llm"):
+            rec.emit(
+                agent.agent_id,
+                agent.role,
+                EventType.PROMPT,
+                {"llm_metadata": action.payload["_llm"]},
+            )
         _apply_swe_action(rec, env, agent, action)
 
         # Monitor re-evaluates before the release step.
@@ -499,6 +549,7 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
         result = _run_swe_episode(run, out_root)
 
     run_dir = RunDirectory(out_root, result["episode_id"])
+    provenance = _build_provenance(run)
     run_dir.manifest_path().write_text(
         json.dumps(
             {
@@ -506,6 +557,15 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
                 "condition": run.condition.value,
                 "seed": run.seed,
                 "agents": [jsonable(a) for a in run.agents],
+                "monitor_enabled": run.monitor_enabled,
+                "config": {
+                    "n_sellers": run.n_sellers,
+                    "mu": run.mu,
+                    "market_steps": run.market_steps,
+                    "include_competitor_prices": run.include_competitor_prices,
+                    "extra": jsonable(run.extra),
+                },
+                "provenance": provenance,
             },
             indent=2,
         ),
@@ -513,3 +573,39 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
     )
     run_dir.result_path().write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
+
+
+def _build_provenance(run: RunConfig) -> dict[str, Any]:
+    """Capture enough local runtime metadata to identify and replay an episode."""
+    import importlib.metadata
+    import platform
+    import subprocess
+
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+            check=True, timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        commit = None
+
+    versions: dict[str, str] = {}
+    for package in ("collusions-lab", "PyYAML", "requests", "inspect-ai"):
+        try:
+            versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+
+    return {
+        "git_commit": commit,
+        "python_version": platform.python_version(),
+        "tool_versions": versions,
+        "model_versions": {
+            agent.agent_id: f"{agent.provider}:{agent.model}" for agent in run.agents
+        },
+        "prompt_hashes": {
+            agent.agent_id: hashlib.sha256(agent.system_prompt.encode("utf-8")).hexdigest()
+            for agent in run.agents
+        },
+        "notes": "Hashes cover configured system_prompt only; generated runtime prompts are not captured.",
+    }
