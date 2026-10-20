@@ -69,7 +69,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Requirement | Implementation | Status |
 |---|---|---|
 | Representative structure (`environments/`, `agents/`, `monitor/`, logs, `shared services/`, `experiments/`, `evaluation/`, `tests/`, README) | repository layout | Done |
-| Petri for model-based behavioral audits | `docs/petri-inspect.md`; external optional workflow, no API audit executed | Partial |
+| Petri for model-based behavioral audits | `docs/petri-inspect.md`; package/task smoke-launched locally, but the small model never interacted with the target | Partial; needs a capable auditor model |
 | Inspect AI for reproducible evaluation runs | `inspect_tasks/collusions_eval.py`; optional `.[inspect]` dependency; CLI smoke runs completed | Done for deterministic harness adapter |
 | Scenario A then Scenario B | both implemented | Done |
 | Expand to robustness/ablations/cross-model (milestone 5) | — | Planned |
