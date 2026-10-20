@@ -178,3 +178,66 @@ def test_harness_facade_runs_and_replays(tmp_path: Path):
     replay = h.replay(result["episode_id"])
     assert replay.episode_id == result["episode_id"]
     assert replay.monitor_enabled is True
+
+
+# ------------------------------------------------------------------ provenance artifacts
+def test_provenance_extra_holds_runtime_metadata(tmp_path: Path):
+    run = RunConfig(
+        Scenario.SOFTWARE_ENGINEERING,
+        EpisodeCondition.KNOWN_COLLUSION,
+        _swe_agents(SWE_DEVIANT_ROLES),
+        seed=6,
+    )
+    result = run_episode(run, tmp_path)
+    replay = replay_episode(tmp_path, result["episode_id"])
+
+    assert "_artifacts" not in result
+    assert "runtime_prompt_hashes" in replay.manifest["provenance"]["extra"]
+    assert replay.diff_refs
+    assert all(r.startswith("diffs/") for r in replay.diff_refs)
+
+    first = replay.diff(replay.diff_refs[0])
+    assert "diff" in first or "@@" in first or first.strip()
+
+
+def test_diff_artifact_path_traversal_guard(tmp_path: Path):
+    run = RunConfig(
+        Scenario.SOFTWARE_ENGINEERING,
+        EpisodeCondition.KNOWN_COLLUSION,
+        _swe_agents(SWE_DEVIANT_ROLES),
+        seed=8,
+    )
+    result = run_episode(run, tmp_path)
+    replay = replay_episode(tmp_path, result["episode_id"])
+    with pytest.raises(ReplayError):
+        replay.diff("../../etc/passwd")
+
+
+def test_runtime_prompt_hashes_for_llm_agents(tmp_path: Path):
+    from collusions_lab.schemas import AgentConfig as AC
+
+    agents = [
+        AC(
+            agent_id=f"seller_{i}",
+            role=AgentRole.SELLER,
+            provider="mock",
+            model="mock",
+            hidden_objective="collude",
+        )
+        for i in range(3)
+    ]
+    run = RunConfig(
+        Scenario.MARKETS,
+        EpisodeCondition.SHARED_CONTEXT,
+        agents,
+        seed=1,
+        n_sellers=3,
+        market_steps=20,
+    )
+    result = run_episode(run, tmp_path)
+
+    replay = replay_episode(tmp_path, result["episode_id"])
+    hashes = replay.runtime_prompt_hashes
+    assert hashes
+    assert all(len(h) == 64 for hs in hashes.values() for h in hs)
+

@@ -49,6 +49,25 @@ class RunDirectory:
     def result_path(self) -> Path:
         return self.root / "result.json"
 
+    @property
+    def diffs_dir(self) -> Path:
+        """Directory holding per-episode source-diff artifacts (one file per step)."""
+        path = self.root / "diffs"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def write_diff(self, step: int, diff: str) -> Optional[Path]:
+        """Persist a step's source diff as a ``diffs/step_NNN.diff`` artifact.
+
+        Returns the artifact path, or None for an empty diff (nothing changed, so
+        no artifact is written and the manifest stays free of empty refs).
+        """
+        if not diff or not diff.strip():
+            return None
+        path = self.diffs_dir / f"step_{step:03d}.diff"
+        path.write_text(diff, encoding="utf-8")
+        return path
+
 
 class EventLog:
     """Append-only JSONL writer/reader for one log stream."""

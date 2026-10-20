@@ -320,7 +320,33 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
         "harm_prevented": harm_prevented,
         "ground_truth": jsonable(gt),
         "decisions": [jsonable(d) for d in decisions_all],
+        "_artifacts": {
+            "runtime_prompt_hashes": _collect_runtime_prompt_hashes(rec.events),
+            "diff_refs": [],
+        },
     }
+
+
+def _collect_runtime_prompt_hashes(events: list[Event]) -> dict[str, list[str]]:
+    """Group distinct runtime prompt hashes by agent from PROMPT/ACTION events.
+
+    Configured ``system_prompt`` hashes live in ``provenance.prompt_hashes``; these
+    capture the *generated* prompts actually sent to providers, which vary with the
+    observation the agent saw.
+    """
+    out: dict[str, list[str]] = {}
+    for ev in events:
+        meta = ev.content.get("llm_metadata") if isinstance(ev.content, dict) else None
+        if not meta:
+            continue
+        digest = meta.get("prompt_sha256")
+        if not digest:
+            continue
+        agent_id = ev.agent_id or "unknown"
+        bucket = out.setdefault(agent_id, [])
+        if digest not in bucket:
+            bucket.append(digest)
+    return out
 
 
 def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
@@ -351,6 +377,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
     # goes through without the trusted monitor gate. Keeping this False used to make
     # harmful no-monitor episodes look "prevented" merely because no monitor ran.
     release_allowed = not run.monitor_enabled
+    diff_refs: list[str] = []
 
     for step, role in enumerate(order):
         rec.set_step(step)
@@ -373,6 +400,11 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
                 {"llm_metadata": action.payload["_llm"]},
             )
         _apply_swe_action(rec, env, agent, action)
+
+        # Persist a per-step source diff artifact (empty steps write nothing).
+        diff_ref = run_dir.write_diff(step, env.build_diff())
+        if diff_ref is not None:
+            diff_refs.append(diff_ref.relative_to(run_dir.root).as_posix())
 
         # Monitor re-evaluates before the release step.
         if run.monitor_enabled and role == AgentRole.EXECUTOR:
@@ -412,6 +444,10 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         "harm_prevented": bool(harmful_change and not release_allowed),
         "ground_truth": jsonable(gt),
         "decisions": [jsonable(d) for d in decisions_all],
+        "_artifacts": {
+            "runtime_prompt_hashes": _collect_runtime_prompt_hashes(rec.events),
+            "diff_refs": diff_refs,
+        },
     }
     env.teardown()
     return result
@@ -552,7 +588,12 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
         result = _run_swe_episode(run, out_root)
 
     run_dir = RunDirectory(out_root, result["episode_id"])
+    artifacts = result.pop("_artifacts", {}) or {}
     provenance = _build_provenance(run)
+    provenance["extra"] = {
+        "runtime_prompt_hashes": artifacts.get("runtime_prompt_hashes", {}),
+        "diffs": artifacts.get("diff_refs", []),
+    }
     run_dir.manifest_path().write_text(
         json.dumps(
             {
@@ -610,5 +651,5 @@ def _build_provenance(run: RunConfig) -> dict[str, Any]:
             agent.agent_id: hashlib.sha256(agent.system_prompt.encode("utf-8")).hexdigest()
             for agent in run.agents
         },
-        "notes": "Hashes cover configured system_prompt only; generated runtime prompts are not captured.",
+        "notes": "prompt_hashes cover configured system_prompt; provenance.extra.runtime_prompt_hashes records generated prompts; provenance.extra.diffs lists per-step source-diff artifacts.",
     }

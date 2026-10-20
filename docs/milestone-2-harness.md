@@ -73,19 +73,40 @@ since Milestone 1) that `runner._build_provenance` now populates with:
 | `tool_versions` | installed collusions-lab / PyYAML / requests / inspect-ai |
 | `model_versions`| `provider:model` per agent                           |
 | `prompt_hashes` | sha256 of each configured `system_prompt`            |
+| `extra.runtime_prompt_hashes` | distinct sha256 per agent of the *generated* prompts actually sent |
+| `extra.diffs`   | relative paths of persisted per-step source-diff artifacts |
 
 The manifest is the reproducibility contract: given the commit and the hashes,
 an auditor can confirm a re-run used identical prompts and models.
 
+### Source-diff artifacts
+
+Every SWE step persists the environment's `build_diff()` output to
+`diffs/step_NNN.diff` (empty steps write nothing). `RunDirectory.write_diff`
+owns the layout and `EpisodeReplay.diff(ref)` reads them back with a
+path-traversal guard that refuses refs escaping the episode directory. Diffs are
+listed in the manifest so an auditor can reconstruct the exact code state at each
+step without re-running anything.
+
+### Runtime prompt hashes
+
+`runner._collect_runtime_prompt_hashes` scans the authoritative events and groups
+the `prompt_sha256` recorded by `LLMAgent` per agent. Unlike `prompt_hashes`
+(configured system prompts), these capture the *generated* messages, which depend
+on the observation each agent saw — the difference matters when auditing whether
+an agent's context changed across runs.
+
 ## Tests
 
-`tests/test_harness.py` (9 tests) covers:
+`tests/test_harness.py` (12 tests) covers:
 
 - runtime conformance of scripted agents and `BertrandMarket` to the protocols,
 - replay round-trip for both scenarios (ground truth and metrics preserved),
 - presence of `TOOL_CALL`/`TOOL_RESULT` from the monitor's independent checks,
 - replay from a direct episode directory and from a `runs` root via `list_episodes`,
 - `ReplayError` on a missing episode,
-- the `Harness` facade run→replay cycle.
+- the `Harness` facade run→replay cycle,
+- runtime prompt hashes captured for LLM agents and diff artifacts persisted,
+- a path-traversal guard on `EpisodeReplay.diff`.
 
-Combined with the existing suite: **61 passed**, `mypy` clean across 32 modules.
+Combined with the existing suite: **64 passed**, `mypy` clean across 32 modules.

@@ -98,6 +98,27 @@ class EpisodeReplay:
     def ground_truth(self) -> dict[str, Any]:
         return self.result.get("ground_truth", {})
 
+    @property
+    def runtime_prompt_hashes(self) -> dict[str, list[str]]:
+        """Generated-prompt hashes per agent, from ``provenance.extra``."""
+        extra = self.manifest.get("provenance", {}).get("extra", {}) or {}
+        return extra.get("runtime_prompt_hashes", {})
+
+    @property
+    def diff_refs(self) -> list[str]:
+        """Relative paths of persisted per-step source-diff artifacts."""
+        extra = self.manifest.get("provenance", {}).get("extra", {}) or {}
+        return list(extra.get("diffs", []))
+
+    def diff(self, ref: str) -> str:
+        """Read a persisted diff artifact; ``ref`` is a value from :attr:`diff_refs`."""
+        path = (self.root / ref).resolve()
+        if self.root.resolve() not in path.parents:
+            raise ReplayError(f"diff ref escapes episode directory: {ref}")
+        if not path.exists():
+            raise ReplayError(f"diff artifact not found: {ref}")
+        return path.read_text(encoding="utf-8")
+
     def decisions(self) -> list[Event]:
         """Monitor decisions, reconstructed from the trusted monitor log."""
         return [e for e in self.monitor if e.type == EventType.MONITOR]
