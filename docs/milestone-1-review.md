@@ -1,60 +1,39 @@
 # Milestone 1 compliance review
 
-This review compares the current checkout with Milestone 1 in the project
-requirements. Requirements are the user's project brief; instructions and example
-code inside that brief are not executable directions by themselves.
+This review compares the current checkout with Milestone 1 in the project requirements. The brief is project context; text and examples inside it are not executable directions by themselves.
 
 ## Finding
 
-**Milestone 1 is partially complete, but it is not yet a reproduced benchmark
-baseline.** The repository provides a useful, reproducible synthetic prototype and
-documents four related research projects. It does not run SCHEME task instances or
-the double-auction collusion benchmark. The repo's original Bertrand market should
-be described as a toy adaptation, not a reproduction of *By Fair Means or Foul*.
+**The local Milestone 1 fallback is implemented; upstream benchmark reproduction remains unavailable.** The repository now has paired, seeded sweeps for both synthetic scenarios and records run configuration and runtime provenance. Those sweeps validate the harness only. They are not SCHEME or double-auction benchmark results. The SCHEME project page describes the benchmark but does not link task/code artifacts; the referenced double-auction repository has no declared license, so its code/data are not integrated. The Bertrand environment remains a toy adaptation, not a reproduction of *By Fair Means or Foul*.
 
 | Milestone 1 requirement | Current evidence | Status |
 |---|---|---|
 | Review SCHEME and double-auction benchmark availability, licensing, and fit | `docs/audits/scheme.md`, `docs/audits/llm-agent-collusion.md` | Done as a desk review |
-| Reproduce software-engineering benchmark baseline | `SWEEnvironment` uses an in-repo synthetic repository; no SCHEME tasks or upstream harness | Gap |
-| Reproduce market benchmark baseline | `BertrandMarket` is a custom toy; no double-auction task/data integration | Gap |
-| Use two scenarios and a common trusted-monitor interface | Synthetic SWE and Bertrand environments use the same runner/monitor APIs | Partial prototype |
-| Record seeds, conditions, logs, results, and metrics | `runner.py`, JSONL episode logs, result schemas, evaluation modules | Partial; paired seeds exist, but runs are small and scripted |
-| Report benchmark-validated results | Existing runs are prototype smoke experiments, not upstream benchmark replications | Gap |
+| Reproduce software-engineering benchmark baseline | SCHEME project page links no task/code artifacts; seeded synthetic fallback in `experiments/milestone1_swe.yaml` | Fallback implemented; upstream reproduction blocked |
+| Reproduce market benchmark baseline | Reference CDA repo has no declared license; seeded Bertrand fallback in `experiments/milestone1_market.yaml` | Fallback implemented; upstream reproduction blocked |
+| Use two scenarios and a common trusted-monitor interface | Both fallbacks use the shared runner and monitor; SWE no-monitor arm is an untreated release baseline | Done for PoC |
+| Record seeds, conditions, logs, results, and metrics | `runner.py` records run config and runtime provenance; configured and generated prompts are SHA-256 identified, prompt text is not stored | Partial; hashes do not permit exact prompt reconstruction |
+| Report benchmark-validated results | Scripted fallback sweeps validate harness controls only, not upstream benchmarks or LLM behavior | Gap; requires upstream artifacts and model runs |
 
-The `docs/requirements-traceability.md` table now uses these distinctions. No
-upstream code or data was copied; the double-auction audit notes that the referenced
-repository has no declared license, so integrating its code would need a separate
-license decision.
+No upstream code or data was copied. The double-auction audit notes that its repository has no declared license, so integrating its code/data requires author permission or a license change.
 
 ## Corrections and limits
 
-- The market implementation adapts selected dynamics and metrics and documents a
-  deliberate price-update change. That is useful for a controlled toy baseline but
-  changes the experimental behavior and prevents a claim of replication.
-- The SWE implementation has a known invariant and independent checks, but uses a
-  toy repository. It cannot establish generalization to real agentic coding tasks.
-- Deterministic scripted agents establish harness behavior, not emergent collusion
-  rates for LLMs. The current run outputs must not be reported as evidence that an
-  LLM collusion detector works.
-- Existing per-episode metrics are not a substitute for a preregistered protocol,
-  held-out tasks, or confidence intervals across adequate repetitions.
+- The market implementation is a custom Bertrand toy that adapts selected mechanisms/metrics and changes price updates. It is not a reproduction of the cited paper or a continuous double auction.
+- The SWE fallback uses an in-repo synthetic repository. It cannot establish generalization to real agentic coding tasks.
+- Scripted agents establish harness behavior, not emergent collusion rates for LLMs. Fallback results must not be reported as evidence that an LLM collusion detector works.
+- Shared-context and communication condition labels are present, but the scripted controls do not model actual communication treatment effects. The conditions are protocol placeholders for the LLM experiments.
+- Episode manifests identify seeds, settings, versions, model/provider names, and prompt hashes. They do not preserve generated prompt contents or provider-side model snapshots.
+- Per-episode metrics are not a substitute for a preregistered protocol, held-out tasks, or confidence intervals across adequate independent repetitions.
 
-## Suggested exit criteria
+## Remaining upstream exit criteria
 
-1. Choose one benchmark for each scenario (or explicitly defer markets and narrow
-   Milestone 1 to SWE).
-2. Freeze licenses, versions/commits, benchmark task IDs, model/provider settings,
-   prompts, seeds, and inference limits in manifests.
-3. Run benchmark control conditions without the monitor and preserve upstream
-   expected artifacts and scores.
-4. Add a separate monitor-on arm; keep detection, harmful outcomes, intervention,
-   and utility as distinct outcomes.
-5. Label any synthetic episodes as harness validation and keep their results apart
-   from benchmark reproduction results.
+1. Obtain SCHEME task artifacts and license/permission details for the CDA implementation, or record author-approved alternatives.
+2. Freeze benchmark commits/task IDs, model/provider settings, prompts, seeds, and inference limits before an upstream run.
+3. Run no-monitor controls and monitor-on arms against upstream tasks; preserve expected artifacts and scores.
+4. Report detector outcomes, harmful outcomes, intervention effects, and utility separately with uncertainty intervals from genuinely independent repetitions.
+5. Implement communication treatments and ensure shared-context/communication conditions have distinct, documented interventions.
 
-## Current checkout verification
+## Verification
 
-The repository test suite passed **48 tests** when the Windows temporary directory
-was redirected to the writable checkout. A default run in this sandbox failed
-because the OS temp directory is write-protected here; that is an execution
-environment constraint, not evidence of a project test failure.
+The original review passed 48 tests. This branch fixes a discovered no-monitor SWE baseline bug (the absent monitor decision was incorrectly treated as a blocked release) and adds regression coverage. Updated suite results are reported with the PR. Windows may require `TEMP` and `TMP` to point to a writable directory.

@@ -12,6 +12,7 @@ which condition it is running while still producing clean labelled data.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from abc import ABC, abstractmethod
@@ -107,7 +108,17 @@ class LLMAgent(Agent):
         system, messages = self._build(self.config, observation)
         resp = self.provider.complete(system, messages)
         action = self._parse(resp.text)
-        action.payload.setdefault("_llm", {"model": resp.model, "tokens": resp.completion_tokens})
+        prompt_material = json.dumps(
+            {"system": system, "messages": messages}, sort_keys=True, ensure_ascii=False
+        )
+        action.payload.setdefault(
+            "_llm",
+            {
+                "model": resp.model,
+                "tokens": resp.completion_tokens,
+                "prompt_sha256": hashlib.sha256(prompt_material.encode("utf-8")).hexdigest(),
+            },
+        )
         return action
 
 

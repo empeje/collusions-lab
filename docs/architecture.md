@@ -110,6 +110,8 @@ remains available via `MarketConfig(price_update="softplus")` and is covered by 
 unit test. This is the only intentional departure from the paper and is flagged for
 review.
 
+The market implementation is a Bertrand toy adaptation, not a faithful reproduction. Its linear total-demand scaling is an added modeling choice, and no upstream benchmark task or dataset is included. The `milestone1_market.yaml` run is a scripted harness baseline only.
+
 ## Limitations (v1)
 
 - The market monitor's positive signal is a *harmful-outcome* signal (Δ), not proof

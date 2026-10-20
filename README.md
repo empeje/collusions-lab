@@ -57,6 +57,8 @@ python -m collusions_lab.experiments experiments/intervention_ablations.yaml
 python -m collusions_lab.experiments experiments/benign_controls.yaml
 python -m collusions_lab.experiments experiments/coordination_conditions.yaml
 python -m collusions_lab.experiments experiments/swe_all_conditions.yaml
+python -m collusions_lab.experiments experiments/milestone1_swe.yaml
+python -m collusions_lab.experiments experiments/milestone1_market.yaml
 python -m collusions_lab.evaluation runs
 ```
 
@@ -131,9 +133,14 @@ reported together with the prevention–utility trade-off.
 ## Tests and checks
 
 ```bash
-python -m pytest -q      # 48 tests, deterministic, no network
+python -m pytest -q      # deterministic, no network
 python -m mypy collusions_lab
 ```
+
+The `milestone1_*_fallback.yaml` sweeps are paired harness checks using scripted
+agents. They are not reproductions of SCHEME or the double-auction benchmark and do
+not establish LLM collusion rates. See [the Milestone 1 review](docs/milestone-1-review.md)
+for the upstream access/license blockers and remaining work.
 
 ## Safety
 

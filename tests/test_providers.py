@@ -6,6 +6,8 @@ from collusions_lab.llm.providers import (
     TransformersProvider,
     get_provider,
 )
+from collusions_lab.agents.core import AgentAction, LLMAgent
+from collusions_lab.schemas import AgentConfig, AgentRole
 
 
 def test_mock_provider_is_deterministic():
@@ -42,3 +44,17 @@ def test_hf_inference_requires_token(monkeypatch):
 def test_get_provider_forwards_generator_option():
     p = get_provider("local", "some/model", generator=lambda *a: "ok")
     assert isinstance(p, TransformersProvider)
+
+
+def test_llm_agent_records_dynamic_prompt_fingerprint():
+    agent = LLMAgent(
+        AgentConfig("seller", AgentRole.SELLER, provider="mock"),
+        MockProvider(),
+        lambda config, observation: ("system", [{"role": "user", "content": "task"}]),
+        lambda text: AgentAction("action"),
+    )
+
+    action = agent.act({})
+
+    assert len(action.payload["_llm"]["prompt_sha256"]) == 64
+    assert action.payload["_llm"]["model"]

@@ -18,8 +18,9 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Requirement | Implementation | Status |
 |---|---|---|
 | Review relevant repos (SCHEME, NARCBench, LLM-agent-collusion, algorithmic pricing) | `docs/audits/*.md` | Done (review only) |
-| Reproduce a software-engineering benchmark baseline (SCHEME or equivalent) | Current SWE environment is synthetic; SCHEME task instances are not integrated | Gap |
-| Reproduce a market benchmark baseline (double-auction collusion or equivalent) | Current market environment is a custom Bertrand toy; double-auction code/data are not integrated | Gap |
+| NARCBench activation-probe integration | Audited in `docs/audits/narcbench.md`; no probe integrated because the published setup needs model activations and high-VRAM extraction | Planned (separate white-box track) |
+| Reproduce a software-engineering benchmark baseline (SCHEME or equivalent) | Paired synthetic fallback sweep in `experiments/milestone1_swe.yaml`; SCHEME task/code artifacts are not linked from the project page | Fallback done; upstream reproduction blocked |
+| Reproduce a market benchmark baseline (double-auction collusion or equivalent) | Paired synthetic fallback sweep in `experiments/milestone1_market.yaml`; reference code/data are not integrated because no license is declared | Fallback done; upstream reproduction blocked |
 | Base market design on the pricing-collusion paper | Selected mechanisms/metrics adapted in `bertrand.py`; not a replication; model deviation in `docs/architecture.md` | Partial |
 
 ## Section 3 — What the trusted agent does
@@ -45,7 +46,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 |---|---|---|---|
 | Three separate labels (benign convergence / harmful tacit / explicit) | `schemas.GroundTruthLabel`; `runner._label_market`, `_label_swe` | Done | `tests/test_episodes.py` |
 | Five matched conditions | `schemas.EpisodeCondition` | Done | `tests/test_schemas.py` |
-| Independent baseline / shared-context / communication / known-collusion / adversarial-monitor | `experiments/*.yaml` | Done | `tests/test_experiments.py` |
+| Independent baseline / shared-context / communication / known-collusion / adversarial-monitor | YAML condition matrix is present; scripted shared-context/communication arms do not model distinct treatments | Partial protocol; LLM treatment behavior remains | `tests/test_experiments.py` |
 | Randomized seeds, model configs, held-out tasks | seeds + provider/model in YAML (multi-model sweeps are milestone 5) | Partial | `tests/test_experiments.py` |
 
 ## Section 5 — Measuring whether it works
@@ -69,7 +70,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 |---|---|---|
 | Representative structure (`environments/`, `agents/`, `monitor/`, logs, `shared services/`, `experiments/`, `evaluation/`, `tests/`, README) | repository layout | Done |
 | Petri for model-based behavioral audits | `docs/petri-inspect.md`; external optional workflow, no API audit executed | Partial |
-| Inspect AI for reproducible evaluation runs | `inspect_tasks/collusions_eval.py`; optional `.[inspect]` dependency | Partial (one sample per scenario verified) |
+| Inspect AI for reproducible evaluation runs | `inspect_tasks/collusions_eval.py`; optional `.[inspect]` dependency; CLI smoke runs completed | Done for deterministic harness adapter |
 | Scenario A then Scenario B | both implemented | Done |
 | Expand to robustness/ablations/cross-model (milestone 5) | — | Planned |
 | Generalize monitor interface to double-auction benchmark (milestone 6) | — | Planned |
