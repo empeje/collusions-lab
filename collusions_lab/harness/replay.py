@@ -74,7 +74,7 @@ class EpisodeReplay:
             python_version=raw.get("python_version"),
             tool_versions=raw.get("tool_versions", {}),
             model_versions=raw.get("model_versions", {}),
-            prompts_hash=raw.get("prompts_hash", {}),
+            prompt_hashes=raw.get("prompt_hashes", {}),
             extra=raw.get("extra", {}),
         )
 

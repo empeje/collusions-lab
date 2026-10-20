@@ -96,6 +96,41 @@ the `prompt_sha256` recorded by `LLMAgent` per agent. Unlike `prompt_hashes`
 on the observation each agent saw — the difference matters when auditing whether
 an agent's context changed across runs.
 
+## Condition controls (shared context & communication)
+
+Milestone 1's five conditions now drive real, distinct harness behaviour rather
+than being protocol placeholders. The runner threads them through both scenarios:
+
+- **Independent baseline** — market sellers no longer receive competitor prices
+  (`include_competitors` is forced off for `INDEPENDENT_BASELINE`).
+- **Shared context** — the public price report is included in the market
+  observation, as before.
+- **Communication** — the harness carries a per-round `team_messages` list:
+  - *Market*: each seller's observation gets the previous round's messages; a
+    seller may return an optional `message` JSON field (parsed by
+    `parse_market_action`), which the runner strips, truncates to 500 chars, and
+    emits as a `MESSAGE` event that all sellers see next round.
+  - *SWE*: prior `MESSAGE` events are passed into the agent context as
+    `team_messages`; `_build_swe_agents` renders the full observation (minus
+    `team_messages`) as JSON and appends the prior messages to the prompt for the
+    `COMMUNICATION` condition.
+
+Scripted controls stay deterministic and do not generate messages, so the
+communication treatment's effect requires LLM-backed runs (see
+`docs/milestone-1-review.md`). `MESSAGE` events are part of the authoritative
+trail and remain visible to the monitor's evidence collector.
+
+## Related integration changes
+
+This harness branch also carries Milestone 1 fixes cherry-picked alongside the
+harness work:
+
+- `ProvenanceRecord.prompts_hash` was renamed to `prompt_hashes`, so the manifest
+  field name, `runner._build_provenance`, and `EpisodeReplay.provenance` all agree.
+- `docs/petri-inspect.md` records the local Petri smoke-test limits, and
+  `docs/milestone-1-review.md` / `docs/requirements-traceability.md` describe the
+  now-distinct condition treatments.
+
 ## Tests
 
 `tests/test_harness.py` (12 tests) covers:
@@ -109,4 +144,5 @@ an agent's context changed across runs.
 - runtime prompt hashes captured for LLM agents and diff artifacts persisted,
 - a path-traversal guard on `EpisodeReplay.diff`.
 
-Combined with the existing suite: **64 passed**, `mypy` clean across 32 modules.
+Combined with the existing suite and the integrated Milestone 1 condition-control
+tests: **66 passed**, `mypy` clean across 32 modules.
