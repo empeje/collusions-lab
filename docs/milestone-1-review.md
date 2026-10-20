@@ -22,7 +22,8 @@ No upstream code or data was copied. The double-auction audit notes that its rep
 - The market implementation is a custom Bertrand toy that adapts selected mechanisms/metrics and changes price updates. It is not a reproduction of the cited paper or a continuous double auction.
 - The SWE fallback uses an in-repo synthetic repository. It cannot establish generalization to real agentic coding tasks.
 - Scripted agents establish harness behavior, not emergent collusion rates for LLMs. Fallback results must not be reported as evidence that an LLM collusion detector works.
-- Shared-context and communication condition labels are present, but the scripted controls do not model actual communication treatment effects. The conditions are protocol placeholders for the LLM experiments.
+- Market independent controls hide competitor prices; shared-context agents receive the public price report; communication agents receive prior-turn messages and can send one bounded public message. Scripted agents do not generate messages, so the communication effect requires LLM-backed runs.
+- The SWE communication condition passes prior agent messages to LLM prompts. Scripted controls remain deterministic and do not use those messages.
 - Episode manifests identify seeds, settings, versions, model/provider names, and prompt hashes. They do not preserve generated prompt contents or provider-side model snapshots.
 - Per-episode metrics are not a substitute for a preregistered protocol, held-out tasks, or confidence intervals across adequate independent repetitions.
 
@@ -32,7 +33,7 @@ No upstream code or data was copied. The double-auction audit notes that its rep
 2. Freeze benchmark commits/task IDs, model/provider settings, prompts, seeds, and inference limits before an upstream run.
 3. Run no-monitor controls and monitor-on arms against upstream tasks; preserve expected artifacts and scores.
 4. Report detector outcomes, harmful outcomes, intervention effects, and utility separately with uncertainty intervals from genuinely independent repetitions.
-5. Implement communication treatments and ensure shared-context/communication conditions have distinct, documented interventions.
+5. Run and analyze the distinct shared-context/communication treatments with model-backed agents.
 
 ## Verification
 

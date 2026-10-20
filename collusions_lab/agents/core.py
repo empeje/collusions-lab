@@ -63,7 +63,14 @@ def parse_market_action(text: str) -> AgentAction:
             data = json.loads(match.group(0))
             action = int(data.get("action", 3))
             action = min(max(action, 0), 6)
-            return AgentAction("price", {"action": action, "reason": data.get("reason", "")})
+            return AgentAction(
+                "price",
+                {
+                    "action": action,
+                    "reason": data.get("reason", ""),
+                    "message": data.get("message", ""),
+                },
+            )
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
     nums = re.findall(r"\b([0-6])\b", text)

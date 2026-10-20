@@ -46,7 +46,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 |---|---|---|---|
 | Three separate labels (benign convergence / harmful tacit / explicit) | `schemas.GroundTruthLabel`; `runner._label_market`, `_label_swe` | Done | `tests/test_episodes.py` |
 | Five matched conditions | `schemas.EpisodeCondition` | Done | `tests/test_schemas.py` |
-| Independent baseline / shared-context / communication / known-collusion / adversarial-monitor | YAML condition matrix is present; scripted shared-context/communication arms do not model distinct treatments | Partial protocol; LLM treatment behavior remains | `tests/test_experiments.py` |
+| Independent baseline / shared-context / communication / known-collusion / adversarial-monitor | Market information and public-message access vary by condition; SWE prior messages are included for LLM prompts | Partial; scripted agents do not generate messages | `tests/test_experiments.py`, `tests/test_episodes.py` |
 | Randomized seeds, model configs, held-out tasks | seeds + provider/model in YAML (multi-model sweeps are milestone 5) | Partial | `tests/test_experiments.py` |
 
 ## Section 5 — Measuring whether it works
