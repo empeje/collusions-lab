@@ -73,8 +73,12 @@ def test_episode_manifest_has_independent_provenance_defaults():
     )
 
     first.provenance.model_versions["seller_0"] = "model-v1"
+    first.provenance.prompt_hashes["seller_0"] = "sha256"
     assert second.provenance.model_versions == {}
     assert isinstance(first.provenance, ProvenanceRecord)
     assert jsonable(first)["provenance"]["model_versions"] == {
         "seller_0": "model-v1"
+    }
+    assert jsonable(first)["provenance"]["prompt_hashes"] == {
+        "seller_0": "sha256"
     }
