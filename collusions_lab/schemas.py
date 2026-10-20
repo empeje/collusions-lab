@@ -136,7 +136,7 @@ class ProvenanceRecord:
     python_version: Optional[str] = None
     tool_versions: dict[str, Any] = field(default_factory=dict)
     model_versions: dict[str, str] = field(default_factory=dict)
-    prompts_hash: dict[str, str] = field(default_factory=dict)
+    prompt_hashes: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
