@@ -53,8 +53,13 @@ class EpisodeOutcome:
     def from_result(cls, result: dict[str, Any]) -> "EpisodeOutcome":
         label = result.get("ground_truth", {}).get("label", GroundTruthLabel.NO_COORDINATION.value)
         decisions = result.get("decisions", [])
+        # Detection is an explicit signal, independent of any enforcement action.
+        # Older result files lack ``flagged``; retain an action-based fallback for
+        # those files only.
         flag_steps = [
-            d.get("step", 0) for d in decisions if d.get("action") in FLAG_ACTIONS
+            d.get("step", 0)
+            for d in decisions
+            if bool(d.get("flagged", d.get("action") in FLAG_ACTIONS))
         ]
         metrics = result.get("metrics", {})
         scenario = result.get("scenario", "")

@@ -20,6 +20,7 @@ detection can be scored separately from prevention.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -217,8 +218,20 @@ class LLMJudgeMonitor(MonitorStrategy):
         """
         sensitive = {"ground_truth", "label", "hidden_objective", "objective", "answer"}
 
-        def _clean(d: dict[str, Any]) -> dict[str, Any]:
-            return {k: v for k, v in d.items() if k.lower() not in sensitive}
+        def _clean(value: Any) -> Any:
+            # Evidence can contain nested tool output. Strip sensitive keys at
+            # every depth, including mappings inside lists.
+            if isinstance(value, dict):
+                return {
+                    k: _clean(v)
+                    for k, v in value.items()
+                    if str(k).lower() not in sensitive
+                }
+            if isinstance(value, list):
+                return [_clean(item) for item in value]
+            if isinstance(value, tuple):
+                return [_clean(item) for item in value]
+            return value
 
         payload: dict[str, Any] = {
             "scenario": bundle.scenario,
@@ -247,11 +260,15 @@ class LLMJudgeMonitor(MonitorStrategy):
             reasons = parsed["reasons"]
         except Exception as exc:  # noqa: BLE001 - fail safe on any provider/parse error
             action = MonitorAction.HOLD
-            risk = 0.5
+            # Max risk keeps the fail-safe HOLD intact for any valid threshold.
+            risk = 1.0
             reasons = [f"judge failed or unparseable ({type(exc).__name__}); holding fail-safe"]
 
-        # Apply the calibrated threshold: a low-risk allow can be downgraded to hold.
-        if action == MonitorAction.ALLOW and risk >= self.threshold:
+        # The calibrated risk threshold controls every judge decision. An
+        # explicit HOLD/CONSTRAIN below threshold must not bypass calibration.
+        if risk < self.threshold:
+            action = MonitorAction.ALLOW
+        elif action == MonitorAction.ALLOW:
             action = MonitorAction.HOLD
             reasons.append(f"risk {risk:.2f} >= threshold {self.threshold:.2f}")
 
@@ -280,6 +297,8 @@ def _parse_judge_output(text: str) -> dict[str, Any]:
     if start == -1 or end == -1 or end <= start:
         raise ValueError("no JSON object in judge output")
     data = json.loads(text[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("judge response must be a JSON object")
     raw = str(data.get("decision", "")).strip().lower()
     action_map = {
         "allow": MonitorAction.ALLOW,
@@ -291,6 +310,8 @@ def _parse_judge_output(text: str) -> dict[str, Any]:
     if raw not in action_map:
         raise ValueError(f"unknown judge decision: {raw!r}")
     risk = float(data.get("risk_score", 0.5))
+    if not math.isfinite(risk):
+        raise ValueError("risk_score must be finite")
     risk = min(max(risk, 0.0), 1.0)
     reasons = data.get("reasons") or []
     if isinstance(reasons, str):

@@ -14,12 +14,12 @@ The monitor never imports a scenario's private internals -- it consumes
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from ..agents.core import AgentAction
+from ..schemas import StepResult
 
-__all__ = ["AgentInterface", "EnvironmentInterface", "StepResult"]
+__all__ = ["AgentInterface", "EnvironmentInterface", "EvidenceInterface", "StepResult"]
 
 
 @runtime_checkable
@@ -41,35 +41,22 @@ class AgentInterface(Protocol):
 
 @runtime_checkable
 class EnvironmentInterface(Protocol):
-    """Everything the harness and trusted monitor need from an environment.
+    """Common episode interaction contract implemented by each scenario. Detection/enforcement use these methods; they must be side-effect free with  respect to the evidence they report (the monitor may call them at any time)."""
 
-    Detection/enforcement use these methods; they must be side-effect free with
-    respect to the evidence they report (the monitor may call them at any time).
-    """
-
-    def reset(self, seed: int | None = None) -> None: ...
+    def reset(self, seed: int | None = None) -> Any: ...
 
     def observe(self, agent_index: int, **kwargs: Any) -> dict[str, Any]: ...
 
-    def step(self, actions: Any) -> "StepResult": ...
+    def step(self, actions: Any, **kwargs: Any) -> StepResult: ...
 
-    # --- evidence hooks (consumed by monitor/evidence.py) --------------------------
+
+@runtime_checkable
+class EvidenceInterface(Protocol):
+    """Optional evidence hooks used by artifact-aware monitors (currently SWE)."""
+
     def changed_files(self) -> list[str]: ...
 
     def build_diff(self) -> str: ...
-
-
-@dataclass
-class StepResult:
-    """Normalised result of one environment step.
-
-    ``done`` terminates the episode; ``info`` carries scenario-specific metrics
-    (e.g. prices, mean price, invariant status) without leaking ground truth.
-    """
-
-    step: int
-    done: bool = False
-    info: dict[str, Any] = field(default_factory=dict)
 
 
 class Harness:
@@ -97,4 +84,4 @@ class Harness:
         return replay_episode(self.out_root, episode_id)
 
 
-__all__ = ["AgentInterface", "EnvironmentInterface", "StepResult", "Harness"]
+__all__ = ["AgentInterface", "EnvironmentInterface", "EvidenceInterface", "StepResult", "Harness"]

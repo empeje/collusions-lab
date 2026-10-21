@@ -149,9 +149,20 @@ def _load_json(path: Path) -> Any:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:  # pragma: no cover - defensive
         raise ReplayError(f"malformed JSON in {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ReplayError(f"expected a JSON object in {path}")
+    return value
+
+
+def _load_events(path: Path) -> list[Event]:
+    """Read one event stream and normalize parse/schema failures as ReplayError."""
+    try:
+        return EventLog(path).read()
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ReplayError(f"malformed event stream in {path}: {exc}") from exc
 
 
 def replay_episode(run: str | Path, episode_id: Optional[str] = None) -> EpisodeReplay:
@@ -169,24 +180,22 @@ def replay_episode(run: str | Path, episode_id: Optional[str] = None) -> Episode
 
     manifest = _load_json(root / "manifest.json")
     result = _load_json(root / "result.json")
-    if manifest is None and result is None:
-        raise ReplayError(f"{root} has neither manifest.json nor result.json")
-
-    manifest = manifest or {}
-    result = result or {}
+    if manifest is None:
+        raise ReplayError(f"{root} is missing manifest.json")
+    if result is None:
+        raise ReplayError(f"{root} is missing result.json")
     ep_id = str(manifest.get("episode_id") or result.get("episode_id") or root.name)
 
     quarantine_store = RunDirectory(root.parent, root.name)
-    load = lambda log: EventLog(log).read()  # noqa: E731
     return EpisodeReplay(
         episode_id=ep_id,
         root=root,
         manifest=manifest,
         result=result,
-        authoritative=load(quarantine_store.authoritative),
-        shared=load(quarantine_store.shared),
-        monitor=load(quarantine_store.monitor),
-        quarantine=load(quarantine_store.quarantine),
+        authoritative=_load_events(quarantine_store.authoritative),
+        shared=_load_events(quarantine_store.shared),
+        monitor=_load_events(quarantine_store.monitor),
+        quarantine=_load_events(quarantine_store.quarantine),
     )
 
 

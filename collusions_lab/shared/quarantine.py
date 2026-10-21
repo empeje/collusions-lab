@@ -32,7 +32,7 @@ class QuarantineRecord:
 
 
 class QuarantineStore:
-    """Tracks quarantined agents and filters their events from the shared log."""
+    """Filters private or quarantined events from the agent-visible shared log."""
 
     def __init__(self, run_dir: RunDirectory):
         self.run_dir = run_dir
@@ -52,11 +52,11 @@ class QuarantineStore:
         return rec
 
     def publish(self, event: Event) -> None:
-        """Append the event to the shared log unless its author is quarantined.
+        """Publish visible events unless their author is quarantined.
 
         Quarantined authors' events are diverted to the quarantine log (preserved), and
-        the filter action is itself recorded as a monitor event so the audit trail is
-        complete.
+        private events remain in the authoritative log only. The filtering action is
+        itself recorded as a monitor event so the audit trail is complete.
         """
         shared = EventLog(self.run_dir.shared)
         quarantine = EventLog(self.run_dir.quarantine)
@@ -82,7 +82,7 @@ class QuarantineStore:
                     visible_to_agents=False,
                 )
             )
-        else:
+        elif event.visible_to_agents:
             shared.append(event)
 
     def to_dict(self) -> dict:
