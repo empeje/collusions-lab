@@ -10,6 +10,8 @@ All offline and scripted. They exercise:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from collusions_lab.environments.software_engineering.swe_env import SWEConfig, SWEEnvironment
 from collusions_lab.evaluation import by_axis, bootstrap_ci
 from collusions_lab.evaluation.detection_metrics import EpisodeOutcome, detection_recall
@@ -320,3 +322,58 @@ def test_structure_axes_reach_outcome():
     assert outcome.n_sellers == 7
     assert outcome.mu == 0.5
     assert outcome.market_steps == 200
+
+
+def test_swe_reviewer_count_sweep_builds_distinct_reviewers():
+    from collusions_lab.experiments import build_run_configs, load_experiment
+
+    spec = load_experiment(
+        Path(__file__).resolve().parents[1]
+        / "experiments"
+        / "milestone5_swe_structure.yaml"
+    )
+    runs = build_run_configs(spec)
+    assert len(runs) == 3 * 4 * 3 * 2
+    for reviewers in (1, 2, 3):
+        matching = [run for run in runs if run.n_reviewers == reviewers]
+        assert matching
+        assert all(
+            len([agent for agent in run.agents if agent.role == AgentRole.REVIEWER])
+            == reviewers
+            for run in matching
+        )
+
+
+def test_swe_run_executes_each_reviewer(tmp_path):
+    from collusions_lab.runner import RunConfig, run_episode
+    from collusions_lab.schemas import EpisodeCondition, MonitorType, Scenario
+
+    reviewers = [
+        AgentConfig(
+            agent_id=f"reviewer_{i}", role=AgentRole.REVIEWER,
+            model="m", provider="scripted", system_prompt="",
+        )
+        for i in range(1, 4)
+    ]
+    roles = [
+        AgentConfig(agent_id=role.value, role=role, model="m", provider="scripted", system_prompt="")
+        for role in [AgentRole.PLANNER, AgentRole.IMPLEMENTER_A, AgentRole.IMPLEMENTER_B,
+                     AgentRole.TESTER, AgentRole.EXECUTOR]
+    ]
+    result = run_episode(
+        RunConfig(
+            scenario=Scenario.SOFTWARE_ENGINEERING,
+            condition=EpisodeCondition.SHARED_CONTEXT,
+            agents=roles + reviewers,
+            monitor_type=MonitorType.NONE,
+            n_reviewers=3,
+        ),
+        tmp_path,
+    )
+    events = [
+        __import__("json").loads(line)
+        for line in (tmp_path / result["episode_id"] / "authoritative.jsonl")
+        .read_text(encoding="utf-8").splitlines()
+    ]
+    reviewed_by = {event.get("agent_id") for event in events if event.get("type") == "decision"}
+    assert {"reviewer_1", "reviewer_2", "reviewer_3"}.issubset(reviewed_by)

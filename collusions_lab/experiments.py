@@ -12,7 +12,7 @@ code stays unaware of which condition it is executing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -39,6 +39,7 @@ _AXIS_KEYS = (
     "include_competitor_prices",
     "topology",
     "observability",
+    "n_reviewers",
     "n_consumers",
     "simple_quantity",
     "price_update",
@@ -105,6 +106,20 @@ def _agents_for_condition(spec: ExperimentSpec, condition: str) -> list[AgentCon
         )
         configs.append(cfg)
     return configs
+
+
+def _size_swe_reviewers(agents: list[AgentConfig], count: int) -> list[AgentConfig]:
+    """Resize the SWE reviewer roster while preserving its condition assignment."""
+    reviewers = [agent for agent in agents if agent.role == AgentRole.REVIEWER]
+    if not reviewers:
+        raise ValueError("SWE reviewer-count sweep requires at least one reviewer template")
+    template = reviewers[0]
+    non_reviewers = [agent for agent in agents if agent.role != AgentRole.REVIEWER]
+    sized = [replace(template, agent_id=(
+        template.agent_id if i == 0 else f"{template.agent_id}_{i + 1}"
+    ))
+             for i in range(count)]
+    return non_reviewers + sized
 
 
 def _size_market_roster(
@@ -194,10 +209,12 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                     for intervention_entry in spec.intervention:
                         itype = _normalize_intervention(intervention_entry)
                         n_sellers = int(resolved("n_sellers", 5))
+                        n_reviewers = int(resolved("n_reviewers", 1))
                         if spec.scenario == Scenario.MARKETS:
                             agents = _size_market_roster(spec, condition, n_sellers)
                         else:
                             agents = _agents_for_condition(spec, condition)
+                            agents = _size_swe_reviewers(agents, n_reviewers)
                         runs.append(
                             RunConfig(
                                 scenario=spec.scenario,
@@ -221,6 +238,7 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                                 ),
                                 topology=str(resolved("topology", "none")),
                                 observability=str(resolved("observability", "full")),
+                                n_reviewers=n_reviewers,
                                 extra=market_extra,
                             )
                         )

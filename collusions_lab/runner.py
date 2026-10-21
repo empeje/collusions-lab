@@ -89,10 +89,19 @@ class RunConfig:
     # Milestone 5: robustness/ablation axes.
     topology: str = "none"          # none | full | ring | star
     observability: str = "full"     # full | artifacts_only | no_messages
+    n_reviewers: int = 1
 
     def __post_init__(self) -> None:
         if not self.monitor_enabled:
             self.monitor_type = MonitorType.NONE
+        if self.n_reviewers < 1:
+            raise ValueError("n_reviewers must be at least 1")
+        if self.scenario == Scenario.SOFTWARE_ENGINEERING:
+            reviewer_count = sum(a.role == AgentRole.REVIEWER for a in self.agents)
+            if reviewer_count and reviewer_count != self.n_reviewers:
+                raise ValueError(
+                    f"n_reviewers={self.n_reviewers} but agent roster has {reviewer_count} reviewers"
+                )
 
 
 def load_run_config(path: str | Path) -> RunConfig:
@@ -131,6 +140,7 @@ def load_run_config(path: str | Path) -> RunConfig:
         intervention=InterventionType(data.get("intervention", "auto")),
         topology=data.get("topology", "none"),
         observability=data.get("observability", "full"),
+        n_reviewers=int(data.get("n_reviewers", 1)),
     )
 
 
@@ -353,6 +363,8 @@ def _run_variant_suffix(run: RunConfig) -> str:
         parts.append(f"top{run.topology}")
     if run.observability and run.observability != "full":
         parts.append(f"obs{run.observability}")
+    if run.n_reviewers != 1:
+        parts.append(f"rev{run.n_reviewers}")
     axes = (run.extra or {}).get("axes", {})
     for key in sorted(axes):
         parts.append(f"{key}{axes[key]}")
@@ -614,7 +626,9 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
     quarantine = QuarantineStore(run_dir)
     rec = EpisodeRecorder(run_dir, quarantine)
     agents = _build_swe_agents(run)
-    by_role = {a.role: a for a in agents}
+    by_role: dict[AgentRole, list] = {}
+    for swe_agent in agents:
+        by_role.setdefault(swe_agent.role, []).append(swe_agent)
     gate = ReleaseGate(env)
     monitor = TrustedMonitor(
         strategy=build_monitor_strategy(run, quarantine),
@@ -631,7 +645,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         AgentRole.IMPLEMENTER_A,
         AgentRole.IMPLEMENTER_B,
         AgentRole.TESTER,
-        AgentRole.REVIEWER,
+        *([AgentRole.REVIEWER] * run.n_reviewers),
         AgentRole.EXECUTOR,
     ]
     decisions_all: list = []
@@ -649,12 +663,16 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
     # (Milestone 5). Fed to ``_topology_deliver`` so a receiver sees messages only
     # along the active topology's edges.
     sent_messages: list[str] = [""] * len(order)
+    role_positions: dict[AgentRole, int] = {}
 
     for step, role in enumerate(order):
         rec.set_step(step)
-        agent = by_role.get(role)
-        if agent is None:
+        role_agents = by_role.get(role, [])
+        if not role_agents:
             continue
+        role_position = role_positions.get(role, 0)
+        agent = role_agents[min(role_position, len(role_agents) - 1)]
+        role_positions[role] = role_position + 1
         if quarantine.is_quarantined(agent.agent_id):
             continue
         context = env.observe(agent_index=0)
@@ -714,7 +732,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
                 decisions_all.append(d)
             # Apply revocations granted by the resolution.
             if restricted_tools:
-                _revoke_tools(by_role.values(), restricted_tools)
+                _revoke_tools(agents, restricted_tools)
 
     invariant_violated, invariant_reasons = env.invariant_violated()
     provenance_ok, _ = env.provenance_complete()
@@ -734,6 +752,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         "intervention": run.intervention.value,
         "topology": run.topology,
         "observability": run.observability,
+        "n_reviewers": run.n_reviewers,
         "review_outcome": (
             review_outcome.value if isinstance(review_outcome, ReviewOutcome) else review_outcome
         ),
@@ -1178,6 +1197,7 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
                     "mu": run.mu,
                     "market_steps": run.market_steps,
                     "include_competitor_prices": run.include_competitor_prices,
+                    "n_reviewers": run.n_reviewers,
                     "extra": jsonable(run.extra),
                 },
                 "judge": (

@@ -27,11 +27,11 @@ attributable rather than confounded with the manipulation. The sweep runner emit
 
 | axis | shared definition | how it is expressed | code path |
 |---|---|---|---|
-| Number of agents | count of participants (`n_sellers` for markets; SWE reviewer duplicated) | `defaults.n_sellers` / extra roles | `run_episode` market loop; SWE `order` |
+| Number of agents | count of participants (`n_sellers` for markets; active SWE reviewer count) | `defaults.n_sellers` / `defaults.n_reviewers` | market loop; SWE role pipeline |
 | Communication topology | which agents can see which messages: `ring`, `star` (hub), `full`, `none` | `topology` key -> `_topology_deliver` | `runner._topology_deliver` |
 | Observability | what the monitor sees of the authoritative trail: `full`, `artifacts_only`, `no_messages` | `observability` key -> collector redaction | `EvidenceCollector.collect_*` |
 | Monitor strength | `none`, `rules`, `llm_judge`, `artifact`, plus an `oracle` upper bound | `monitor` list | `schemas.MonitorType`, `runner.build_monitor_strategy` |
-| Seeds & held-out tasks | randomized seeds; tasks split into `validation` / `test` families | `seeds`, `conditions[].extra.split` | `experiments.build_run_configs` |
+| Seeds & task holdout | randomized seeds are implemented; actual held-out SWE task families are not yet implemented | `seeds`; no active task-family key | `experiments.build_run_configs` |
 | Benign cooperation controls | shared-context & communication conditions with no hidden objective | existing `EpisodeCondition`s | `schemas.EpisodeCondition` |
 
 ### Topology
@@ -88,8 +88,8 @@ signal, so it is not a label leak. It exists purely so robustness curves have a 
 
 | parameter | values | rationale | config key |
 |---|---|---|---|
-| reviewer count | 1, 2, 3 | independent reviewers reduce coordinated-approval risk (section 4 benign convergence) | duplicated `reviewer` agents |
-| task family | `audit_export`, `auth_checks`, `policy_engine` (held out) | distribution-shift test (section 7) | `conditions[].extra.task_family` |
+| reviewer count | 1, 2, 3 | independent reviewers reduce coordinated-approval risk (section 4 benign convergence) | `defaults.n_reviewers`; `experiments/milestone5_swe_structure.yaml` |
+| task family | **Not implemented**; all SWE episodes still use the `audit_export` synthetic task | distribution-shift test remains open | No runtime `task_family` support yet |
 | sensitive path set | `tests/*.py` only vs also the security module | under/over-inclusive provenance checks | `conditions[].extra.sensitive_paths` |
 | tool permissions | full vs restricted (`CapabilitySet`, Milestone 4) | interaction between capability limits and monitoring | `restricted_tools` / `extra.capabilities` |
 | observability | `full`, `artifacts_only`, `no_messages` | incomplete-observability failure mode (section 7) | `observability` |
@@ -101,7 +101,8 @@ Milestone 5 adds to the existing detection/harm/utility families:
 
 * **Robustness curves** -- metric vs each swept axis (recall vs `n_sellers`, FPR vs
   topology), per monitor type.
-* **Distribution-shift table** -- validation vs test task family, with the delta.
+* **Distribution-shift table** -- planned for held-out SWE task families; not produced by
+  current sweeps. Market structure shifts (`n_sellers`, `mu`) are covered.
 * **Correlated-error probes** -- monitor model family == agent model family vs not
   (Milestone 5b).
 * **Prevention-utility frontier** at fixed FPR budgets (reusing `threat_curve`) across
@@ -119,7 +120,7 @@ Milestone 5 adds to the existing detection/harm/utility families:
 | New run fields | `runner.RunConfig.topology`, `.observability`; manifest/result echo them |
 | Sweep plumbing | `experiments.build_run_configs` (list-valued `defaults` -> cartesian) |
 | Aggregation + CIs | `evaluation/robustness.py::by_axis`, `bootstrap_ci`, `robustness_intervals`; exported in `evaluation/__init__` |
-| Configs | `experiments/milestone5_topology.yaml`, `experiments/milestone5_structure.yaml`, `experiments/milestone5_swe.yaml` |
+| Configs | `experiments/milestone5_topology.yaml`, `experiments/milestone5_structure.yaml`, `experiments/milestone5_swe.yaml`, `experiments/milestone5_swe_structure.yaml` |
 | Tests | `tests/test_robustness.py` |
 
 ## Running the sweep
@@ -129,6 +130,7 @@ Milestone 5 adds to the existing detection/harm/utility families:
 python -m collusions_lab.experiments experiments/milestone5_topology.yaml --out runs_m5_topo
 python -m collusions_lab.evaluation runs_m5_topo
 python -m collusions_lab.experiments experiments/milestone5_structure.yaml --out runs_m5_struct
+python -m collusions_lab.experiments experiments/milestone5_swe_structure.yaml --out runs_m5_swe_struct
 python -m collusions_lab.evaluation runs_m5_struct
 ```
 
@@ -141,8 +143,9 @@ utility cost grows with topology density at fixed monitor.
 
 Both sweeps run network-free with `scripted` agents and are fully reproducible:
 
-* `milestone5_topology` (48 episodes: 4 topologies x 2 conditions x 3 seeds x 2 monitors)
-  and `milestone5_structure` (54 episodes: 3 `n_sellers` x 3 `mu` x 3 seeds x 2 monitors).
+* `milestone5_topology` (48 episodes: 4 topologies x 2 conditions x 3 seeds x 2 monitors),
+  `milestone5_structure` (54 episodes: 3 `n_sellers` x 3 `mu` x 3 seeds x 2 monitors),
+  and `milestone5_swe_structure` (72 episodes: 3 reviewer counts x 4 conditions x 3 seeds x 2 monitors).
 * Paired control: every treatment run has a matching `monitor=none` run at the same seed,
   condition, and axis values. The `artifact` monitor reaches recall 1.0 / prevention 1.0 /
   residual 0.0 against the `none` control's recall 0.0 / prevention 0.0 / residual ~0.99.
@@ -153,11 +156,13 @@ Both sweeps run network-free with `scripted` agents and are fully reproducible:
 * Because `scripted` sellers do not condition their policy on delivered messages, the
   topology/residual axes show identical numbers offline -- the axis *plumbing* is what the
   offline sweep verifies; policy-level topology effects require LLM agents (Milestone 5b).
+* The SWE reviewer-count sweep executes each reviewer as a separate agent and records
+  the count as a first-class result axis.
 
 ## Deliverables
 
-* `experiments/milestone5_topology.yaml`, `experiments/milestone5_structure.yaml`, and
-  `experiments/milestone5_swe.yaml`.
+* `experiments/milestone5_topology.yaml`, `experiments/milestone5_structure.yaml`,
+  `experiments/milestone5_swe.yaml`, and `experiments/milestone5_swe_structure.yaml`.
 * `evaluation/robustness.py` (group-by axis + bootstrap CI).
 * `docs/milestone-5-robustness.md` (this file) updated with results.
 * `tests/test_robustness.py` for the topology/observability/oracle plumbing.
@@ -168,7 +173,7 @@ Both sweeps run network-free with `scripted` agents and are fully reproducible:
 |---|---|
 | Incomplete observability | `observability=artifacts_only` / `no_messages` |
 | Correlated model errors | same-model monitor vs agents (Milestone 5b) |
-| Distribution shift | held-out task family; new market structure (`mu`, `n_consumers`) |
+| Distribution shift | market structure (`n_sellers`, `mu`) is swept; held-out SWE task families remain open |
 | False positives from legitimate teamwork | shared-context + communication benign controls at scale |
 | Intervention-induced degradation | intervention cost vs utility retained across monitors |
 | Compromised enforcement | markets: agents attempt to bypass forced prices (future) |
@@ -182,5 +187,18 @@ families is a **separate sub-milestone** because it needs provider access:
 * Correlated-error probe: monitor model family == agent model family vs not.
 * Blockers: HF Inference Providers currently return `402 Payment Required`; offline
   alternatives are documented (`judge_provider: ollama` / `mock`).
-* This is a planned, not-yet-wired deliverable. Do **not** treat the `model family` row in
-  the shared table above as implemented until 5b lands.
+* This is a planned, not-yet-wired deliverable. Model-family robustness is still required
+  by Milestone 5 and is not implemented here.
+
+## Compliance status
+
+Implemented: market seller-count and demand-blending sweeps; SWE reviewer-count,
+communication-topology, observability, benign-control, and monitor-control sweeps;
+bootstrap intervals across episode results. The topology and structure configs pair
+`monitor: none` and `monitor: artifact` at matched seeds and axis values.
+
+Open gaps: no held-out SWE task family is actually run, no agent/monitor model-family
+matrix is executed, and confidence intervals resample episode outcomes independently
+rather than resampling matched treatment/control pairs. The `split` field in older YAML
+examples was metadata only and must not be interpreted as a held-out task split. Full
+Milestone 5 compliance therefore remains partial.

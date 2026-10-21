@@ -34,6 +34,7 @@ ROBUSTNESS_AXES = (
     "n_sellers",
     "mu",
     "market_steps",
+    "n_reviewers",
     "monitor_type",
     "intervention",
 )

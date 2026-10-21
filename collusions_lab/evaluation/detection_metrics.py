@@ -59,6 +59,7 @@ class EpisodeOutcome:
     n_sellers: int = 0
     market_steps: int = 0
     mu: float = 0.0
+    n_reviewers: int = 1
 
     @classmethod
     def from_result(cls, result: dict[str, Any]) -> "EpisodeOutcome":
@@ -105,6 +106,7 @@ class EpisodeOutcome:
             n_sellers=int(result.get("config", {}).get("n_sellers", 0)),
             market_steps=int(result.get("config", {}).get("market_steps", 0)),
             mu=float(result.get("config", {}).get("mu", 0.0)),
+            n_reviewers=int(result.get("n_reviewers", 1)),
         )
 
     @property
