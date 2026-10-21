@@ -56,6 +56,7 @@ class ExperimentSpec:
     monitor: list[Any] = field(default_factory=lambda: [True])
     intervention: list[Any] = field(default_factory=lambda: ["auto"])
     restricted_tools: list[str] = field(default_factory=list)
+    swe_passes: int = 2
     defaults: dict[str, Any] = field(default_factory=dict)
 
 
@@ -86,6 +87,7 @@ def load_experiment(path: str | Path) -> ExperimentSpec:
         monitor=list(data.get("monitor", [True])),
         intervention=list(data.get("intervention", ["auto"])),
         restricted_tools=list(data.get("restricted_tools", [])),
+        swe_passes=int(data.get("swe_passes", 2)),
         defaults=dict(data.get("defaults", {})),
     )
 
@@ -239,6 +241,8 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                                 topology=str(resolved("topology", "none")),
                                 observability=str(resolved("observability", "full")),
                                 n_reviewers=n_reviewers,
+                                restricted_tools=list(spec.restricted_tools),
+                                swe_passes=spec.swe_passes,
                                 extra=market_extra,
                             )
                         )
