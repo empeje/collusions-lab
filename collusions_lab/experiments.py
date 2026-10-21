@@ -12,7 +12,7 @@ code stays unaware of which condition it is executing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -39,9 +39,15 @@ _AXIS_KEYS = (
     "include_competitor_prices",
     "topology",
     "observability",
+    "n_reviewers",
     "n_consumers",
     "simple_quantity",
     "price_update",
+    "agent_provider",
+    "agent_model",
+    "judge_provider",
+    "judge_model",
+    "task_family",
 )
 
 
@@ -55,6 +61,7 @@ class ExperimentSpec:
     monitor: list[Any] = field(default_factory=lambda: [True])
     intervention: list[Any] = field(default_factory=lambda: ["auto"])
     restricted_tools: list[str] = field(default_factory=list)
+    swe_passes: int = 2
     defaults: dict[str, Any] = field(default_factory=dict)
 
 
@@ -85,6 +92,7 @@ def load_experiment(path: str | Path) -> ExperimentSpec:
         monitor=list(data.get("monitor", [True])),
         intervention=list(data.get("intervention", ["auto"])),
         restricted_tools=list(data.get("restricted_tools", [])),
+        swe_passes=int(data.get("swe_passes", 2)),
         defaults=dict(data.get("defaults", {})),
     )
 
@@ -105,6 +113,20 @@ def _agents_for_condition(spec: ExperimentSpec, condition: str) -> list[AgentCon
         )
         configs.append(cfg)
     return configs
+
+
+def _size_swe_reviewers(agents: list[AgentConfig], count: int) -> list[AgentConfig]:
+    """Resize the SWE reviewer roster while preserving its condition assignment."""
+    reviewers = [agent for agent in agents if agent.role == AgentRole.REVIEWER]
+    if not reviewers:
+        raise ValueError("SWE reviewer-count sweep requires at least one reviewer template")
+    template = reviewers[0]
+    non_reviewers = [agent for agent in agents if agent.role != AgentRole.REVIEWER]
+    sized = [replace(template, agent_id=(
+        template.agent_id if i == 0 else f"{template.agent_id}_{i + 1}"
+    ))
+             for i in range(count)]
+    return non_reviewers + sized
 
 
 def _size_market_roster(
@@ -194,10 +216,18 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                     for intervention_entry in spec.intervention:
                         itype = _normalize_intervention(intervention_entry)
                         n_sellers = int(resolved("n_sellers", 5))
+                        n_reviewers = int(resolved("n_reviewers", 1))
                         if spec.scenario == Scenario.MARKETS:
                             agents = _size_market_roster(spec, condition, n_sellers)
                         else:
                             agents = _agents_for_condition(spec, condition)
+                            agents = _size_swe_reviewers(agents, n_reviewers)
+                        if "agent_provider" in axis_values or "agent_model" in axis_values:
+                            agents = [replace(
+                                agent,
+                                provider=str(axis_values.get("agent_provider", agent.provider)),
+                                model=str(axis_values.get("agent_model", agent.model)),
+                            ) for agent in agents]
                         runs.append(
                             RunConfig(
                                 scenario=spec.scenario,
@@ -208,10 +238,10 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                                 monitor_type=mtype,
                                 detection_only=detection_only,
                                 intervention=itype,
-                                judge_provider=spec.defaults.get("judge_provider", "hf"),
-                                judge_model=spec.defaults.get(
+                                judge_provider=str(resolved("judge_provider", spec.defaults.get("judge_provider", "hf"))),
+                                judge_model=str(resolved("judge_model", spec.defaults.get(
                                     "judge_model", "Qwen/Qwen2.5-3B-Instruct"
-                                ),
+                                ))),
                                 judge_threshold=float(spec.defaults.get("judge_threshold", 0.5)),
                                 n_sellers=n_sellers,
                                 mu=float(resolved("mu", 1.0)),
@@ -221,6 +251,10 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                                 ),
                                 topology=str(resolved("topology", "none")),
                                 observability=str(resolved("observability", "full")),
+                                n_reviewers=n_reviewers,
+                                restricted_tools=list(spec.restricted_tools),
+                                swe_passes=spec.swe_passes,
+                                task_family=str(resolved("task_family", "audit_export")),
                                 extra=market_extra,
                             )
                         )

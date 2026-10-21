@@ -47,7 +47,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Three separate labels (benign convergence / harmful tacit / explicit) | `schemas.GroundTruthLabel`; `runner._label_market`, `_label_swe` | Done | `tests/test_episodes.py` |
 | Five matched conditions | `schemas.EpisodeCondition` | Done | `tests/test_schemas.py` |
 | Independent baseline / shared-context / communication / known-collusion / adversarial-monitor | Market information and public-message access vary by condition; SWE prior messages are included for LLM prompts | Partial; scripted agents do not generate messages | `tests/test_experiments.py`, `tests/test_episodes.py` |
-| Randomized seeds, model configs, held-out tasks | seeds + provider/model in YAML; Milestone 5 adds cartesian sweeps over topology/observability/`n_sellers`/`mu`; multi-**model** sweeps are milestone 5b | Partial (5b) | `tests/test_experiments.py` |
+| Randomized seeds, model configs, held-out tasks | paired seed/parameter sweeps cover topology, observability, seller count, demand blend, and SWE reviewer count; actual held-out SWE task families and model-family sweeps are not implemented | Partial | `tests/test_experiments.py`, `tests/test_robustness.py` |
 
 ## Section 5 — Measuring whether it works
 
@@ -81,10 +81,10 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Requirement | Implementation | Status | Tests |
 |---|---|---|---|
 | Intervention selectable independently of detection | `RunConfig.intervention` (`InterventionType`), YAML `intervention`; `runner._apply_market_intervention` / `_apply_swe_intervention` | Done | `tests/test_interventions.py` |
-| Restricted tool permissions | `capabilities.py` (`Tool`, `CapabilitySet`); `AgentConfig.capabilities`; dispatch choke point `runner._check_capability` emitting `TOOL_DENIED` | Done | `tests/test_interventions.py::test_restricted_tools_denies_revoked_actions` |
+| Restricted tool permissions | `capabilities.py` (`Tool`, `CapabilitySet`); `AgentConfig.capabilities`; configured `restricted_tools` passed through experiment/run config; runner checks actions and embedded market messages | Done | `tests/test_interventions.py::test_restricted_tools_denies_revoked_actions` |
 | Graduated review gate | `swe_env.ReleaseGate.request_release` → `ReviewOutcome` (ALLOW / ALLOW_WITH_RESTRICTIONS / REQUEST_CHANGES / BLOCK) | Done | `tests/test_interventions.py::test_review_gate_mapping` |
-| Independent verification as an enforce-time action | `monitor/verification.py::IndependentVerifier` (`swe_verifier` / `market_verifier`) | Done | `tests/test_interventions.py::test_verifier_aggregates_checks` |
-| Intervention vs no-intervention controls | `intervention: none` (detect only) vs the enforcing arms; sweep `experiments/milestone4_interventions.yaml` | Done | `tests/test_interventions.py::test_none_arm_detects_but_does_not_prevent` |
+| Independent verification as an enforce-time action | `monitor/verification.py::IndependentVerifier` (`swe_verifier` / `market_verifier`) and audited verifier calls in both scenario runners | Done | `tests/test_interventions.py::test_independent_verification_sets_block` |
+| Intervention vs no-intervention controls in both scenarios | `intervention: none` (detect only) vs enforcing arms; market and SWE sweeps | Done | `tests/test_interventions.py::test_none_arm_detects_but_does_not_prevent`, `test_swe_none_arm_detects_but_allows_harmful_release` |
 | Per-intervention evaluation breakdown | `evaluation.by_intervention` (`tool_denial_rate`, review-outcome distribution) | Done | `tests/test_interventions.py::test_by_intervention_breakdown` |
 
 ## Section 6 — Small practical PoC, then expand
@@ -95,7 +95,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Petri for model-based behavioral audits | `docs/petri-inspect.md`; package/task smoke-launched locally, but the small model never interacted with the target | Partial; needs a capable auditor model |
 | Inspect AI for reproducible evaluation runs | `inspect_tasks/collusions_eval.py`; optional `.[inspect]` dependency; CLI smoke runs completed | Done for deterministic harness adapter |
 | Scenario A then Scenario B | both implemented | Done |
-| Expand to robustness/ablations (milestone 5) | `evaluation/robustness.py`, `experiments/milestone5_*.yaml`, `docs/milestone-5-robustness.md`; cross-**model** sweep deferred to 5b | Done (5b for models) |
+| Expand to robustness/ablations (milestone 5) | `evaluation/robustness.py`, `experiments/milestone5_*.yaml`, `docs/milestone-5-robustness.md`; reviewer-count, topology, observability, market structure, controls and episode bootstrap are covered; held-out task families and model-family sweeps remain open | Partial |
 | Generalize monitor interface to double-auction benchmark (milestone 6) | — | Planned |
 
 ## Section 7 — When the trusted agent fails

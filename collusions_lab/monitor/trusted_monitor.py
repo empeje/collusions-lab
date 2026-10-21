@@ -32,6 +32,7 @@ class TrustedMonitor:
         detector: Detector | None = None,
         quarantine_store=None,
         detection_only: bool = False,
+        apply_enforcement: bool = True,
     ):
         # Default to the artifact-verification (treatment) strategy for back-compat.
         self.strategy: MonitorStrategy = strategy or ArtifactVerificationMonitor(
@@ -39,6 +40,7 @@ class TrustedMonitor:
         )
         self.enforcement = Enforcement(quarantine_store)
         self.detection_only = detection_only
+        self.apply_enforcement = apply_enforcement
 
     @property
     def monitor_type(self) -> MonitorType:
@@ -56,7 +58,7 @@ class TrustedMonitor:
 
         # Enforcement is skipped entirely in detection-only mode. Strategies tag each
         # decision with the monitor type and a detection flag.
-        if self.detection_only:
+        if self.detection_only or not self.apply_enforcement:
             return outcome
 
         # Quarantine candidates are applied by the strategy that produced them; the

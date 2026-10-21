@@ -24,7 +24,7 @@ from .detection_metrics import EpisodeOutcome, detection_recall, detection_summa
 from .harm_metrics import harm_prevention_rate, harm_summary, residual_harm
 from .utility_metrics import utility_summary
 
-__all__ = ["by_axis", "bootstrap_ci", "axis_values", "robustness_intervals"]
+__all__ = ["by_axis", "bootstrap_ci", "paired_bootstrap_ci", "axis_values", "robustness_intervals"]
 
 # Axes that the Milestone 5 robustness sweep treats as first-class. Documented so the
 # report and tests agree on naming; ``by_axis`` itself accepts any outcome attribute.
@@ -34,6 +34,8 @@ ROBUSTNESS_AXES = (
     "n_sellers",
     "mu",
     "market_steps",
+    "n_reviewers",
+    "task_family",
     "monitor_type",
     "intervention",
 )
@@ -110,6 +112,41 @@ def bootstrap_ci(
         "n": n,
         "alpha": alpha,
     }
+
+
+def paired_bootstrap_ci(
+    metric_fn: Callable[[list[EpisodeOutcome]], float],
+    treatment: list[EpisodeOutcome],
+    control: list[EpisodeOutcome],
+    n: int = 1000,
+    alpha: float = 0.05,
+    seed: int = 1234,
+) -> dict[str, Any]:
+    """Bootstrap a treatment-minus-control metric over matched episode pairs.
+
+    Pairs are keyed by scenario, condition, seed and all non-treatment run axes.
+    Unmatched episodes are omitted instead of silently treated as independent.
+    """
+    if n < 1:
+        raise ValueError("n must be >= 1")
+    controls: dict[str, list[EpisodeOutcome]] = {}
+    for outcome in control:
+        if outcome.pair_key:
+            controls.setdefault(outcome.pair_key, []).append(outcome)
+    pairs = [(outcome, controls[outcome.pair_key][0]) for outcome in treatment
+             if outcome.pair_key and outcome.pair_key in controls]
+    if not pairs:
+        return {"point": None, "low": None, "high": None, "n": 0, "alpha": alpha}
+    differences = [float(metric_fn([treated])) - float(metric_fn([baseline]))
+                   for treated, baseline in pairs]
+    point = sum(differences) / len(differences)
+    rng = random.Random(seed)
+    samples = sorted(sum(differences[rng.randrange(len(differences))]
+                         for _ in differences) / len(differences) for _ in range(n))
+    lo_idx = max(0, int((alpha / 2) * n) - 1) if alpha > 0 else 0
+    hi_idx = min(n - 1, int((1 - alpha / 2) * n))
+    return {"point": round(point, 4), "low": round(samples[lo_idx], 4),
+            "high": round(samples[hi_idx], 4), "n": len(pairs), "alpha": alpha}
 
 
 def robustness_intervals(

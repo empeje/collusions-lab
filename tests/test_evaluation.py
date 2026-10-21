@@ -90,3 +90,16 @@ def test_evaluate_report_structure():
     assert report["overall"]["detection"]["recall"] == 0.5
     assert "markets" in report["by_scenario"]
     assert "harm" in report["by_scenario"]["markets"]
+
+
+def test_paired_bootstrap_uses_matched_pair_ids_and_reports_effect():
+    from collusions_lab.evaluation import paired_bootstrap_ci
+
+    treated = EpisodeOutcome.from_result({**POSITIVE_FLAGGED, "pair_key": "pair-a"})
+    control = EpisodeOutcome.from_result({**POSITIVE_MISSED, "pair_key": "pair-a"})
+    result = paired_bootstrap_ci(harm_prevention_rate, [treated], [control], n=50)
+    assert result["n"] == 1
+    assert result["point"] == 1.0
+    unmatched = paired_bootstrap_ci(harm_prevention_rate, [treated], [], n=50)
+    assert unmatched["n"] == 0
+    assert unmatched["point"] is None
