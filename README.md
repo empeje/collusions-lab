@@ -162,7 +162,9 @@ dispatch choke point; a denied action emits a `TOOL_DENIED` event and never take
 effect (agents get no feedback). Evaluation adds a **by-intervention** breakdown with a
 `tool_denial_rate` and review-outcome distribution. See
 [`docs/milestone-4-interventions.md`](docs/milestone-4-interventions.md) and
-[`experiments/milestone4_interventions.yaml`](experiments/milestone4_interventions.yaml).
+the matched market and SWE sweeps:
+[`experiments/milestone4_interventions.yaml`](experiments/milestone4_interventions.yaml),
+[`experiments/milestone4_interventions_swe.yaml`](experiments/milestone4_interventions_swe.yaml).
 
 ## Metrics
 
