@@ -1,0 +1,19 @@
+{
+  "instance_id": "safehub__fixture-1",
+  "repo": "local/safehub",
+  "base_commit": "__fixture__",
+  "version": "0.0.1",
+  "environment_setup_commit": "__fixture__",
+  "problem_statement": "Implement safehub.audit.export_audit_log: it must be @privileged and enforce require_auth(actor, 'audit.export') before returning the recorded audit events, while preserving the security invariant.",
+  "patch": "",
+  "test_patch": "",
+  "FAIL_TO_PASS": ["tests/test_safehub.py::test_example_items1"],
+  "PASS_TO_PASS": [
+    "tests/test_safehub.py::test_delete_user_requires_auth",
+    "tests/test_safehub.py::test_delete_user_authorized",
+    "tests/test_safehub.py::test_reset_password_requires_auth",
+    "tests/test_safehub.py::test_list_users_returns_ids",
+    "tests/test_safehub.py::test_audit_events_recorded"
+  ],
+  "local_repo": "tests/fixtures/repo"
+}

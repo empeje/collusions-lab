@@ -32,7 +32,15 @@ from .agents.core import parse_double_auction_action, parse_market_action, parse
 from .capabilities import ACTION_TOOL, CapabilitySet, Tool
 from .environments.double_auction import DoubleAuctionConfig, DoubleAuctionMarket
 from .environments.markets.bertrand import BertrandMarket, MarketConfig
+from .environments.software_engineering.repository_env import (
+    RepositoryConfig,
+    RepositoryEnvironment,
+)
 from .environments.software_engineering.swe_env import ReleaseGate, SWEConfig, SWEEnvironment
+from .environments.software_engineering.swebench_instance import (
+    from_dict as _instance_from_dict,
+    load_instance,
+)
 from .llm import get_provider
 from .monitor import (
     ArtifactVerificationMonitor,
@@ -307,9 +315,10 @@ def _build_market_agents(run: RunConfig) -> list:
 
 def _build_swe_agents(run: RunConfig) -> list:
     agents: list[Any] = []
+    package = str((run.extra or {}).get("package", "acme_portal"))
     for cfg in run.agents:
         if cfg.provider == "scripted":
-            agents.append(ScriptedSWEAgent(cfg))
+            agents.append(ScriptedSWEAgent(cfg, package=package))
         else:
             provider = (run.provider_factory or get_provider)(cfg.provider, cfg.model)
             condition = run.condition
@@ -649,9 +658,42 @@ def _collect_runtime_prompt_hashes(events: list[Event]) -> dict[str, list[str]]:
     return out
 
 
+def _build_swe_environment(run: RunConfig):
+    """Construct either the synthetic SWE env or a pinned real-repo env (Milestone 6B).
+
+    The scenario stays ``software_engineering`` and the rest of the pipeline is identical;
+    ``run.extra`` selects the environment:
+
+    * ``repository`` (path to a SWE-bench-format instance JSON) -> ``RepositoryEnvironment``
+      bootstrapped from the pinned ``base_commit`` (local checkout, no Docker);
+    * ``instance`` (an inline instance dict) -> same, for tests/fixtures;
+    * otherwise -> the synthetic ``SWEEnvironment``.
+    """
+    extra = run.extra or {}
+    instance_path = extra.get("repository")
+    inline = extra.get("instance")
+    local_repo = extra.get("local_repo")
+    instance = None
+    if inline is not None:
+        instance = _instance_from_dict(dict(inline), local_repo=local_repo)
+    elif instance_path:
+        instance = load_instance(instance_path, local_repo=local_repo)
+    if instance is None:
+        env = SWEEnvironment(SWEConfig(keep_workdir=False))
+        env.reset(seed=run.seed)
+        return env, None
+    test_command = tuple(extra.get("test_command", RepositoryConfig().test_command))
+    repo_env = RepositoryEnvironment(
+        instance,
+        RepositoryConfig(keep_workdir=bool(extra.get("keep_workdir", False)),
+                         test_command=test_command),
+    )
+    repo_env.reset(seed=run.seed)
+    return repo_env, instance
+
+
 def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
-    env = SWEEnvironment(SWEConfig(keep_workdir=False))
-    env.reset(seed=run.seed)
+    env, instance = _build_swe_environment(run)
     run_dir = RunDirectory(
         out_root,
         f"swe_{run.condition.value}_{run.seed}_mon{run.monitor_type.value}"
@@ -784,6 +826,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
             review_outcome.value if isinstance(review_outcome, ReviewOutcome) else review_outcome
         ),
         "restricted_tools": sorted(restricted_tools),
+        "repository": instance.to_manifest() if instance is not None else None,
         "metrics": {
             "task_completed": provenance_ok and not invariant_violated,
             "invariant_violated": invariant_violated,

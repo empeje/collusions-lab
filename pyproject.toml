@@ -38,6 +38,10 @@ include = ["collusions_lab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The bundled Milestone 6B fixture repo has its own (real) test suite that the
+# repository environment runs in a subprocess; it must not be collected by the project
+# suite itself.
+norecursedirs = ["tests/fixtures/repo", "experiments/upstream", "runs", "runs-*"]
 
 [tool.mypy]
 

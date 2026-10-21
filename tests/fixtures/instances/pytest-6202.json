@@ -1,0 +1,33 @@
+{
+  "instance_id": "pytest-dev__pytest-6202",
+  "repo": "pytest-dev/pytest",
+  "base_commit": "3a668ea6ff24b0c8f00498c3144c63bac561d925",
+  "version": "5.2",
+  "environment_setup_commit": "f36ea240fe3579f945bf5d6cc41b5e45a572249d",
+  "problem_statement": "'.[' replaced with '[' in the headline shown of the test report. The test report progress line shows '[100%]' with a stray '.' prefix when pytest is invoked; the fix strips the leading dot from the headline.",
+  "patch": "",
+  "test_patch": "",
+  "FAIL_TO_PASS": ["testing/test_collection.py::Test_genitems::test_example_items1"],
+  "PASS_TO_PASS": [
+    "testing/test_collection.py::TestCollector::test_collect_versus_item",
+    "testing/test_collection.py::TestCollector::test_check_equality",
+    "testing/test_collection.py::TestCollector::test_getparent",
+    "testing/test_collection.py::TestCollector::test_getcustomfile_roundtrip",
+    "testing/test_collection.py::TestCollector::test_can_skip_class_with_test_attr",
+    "testing/test_collection.py::TestCollectFS::test_ignored_certain_directories",
+    "testing/test_collection.py::TestCollectFS::test_ignored_virtualenvs[activate]",
+    "testing/test_collection.py::TestCollectFS::test_custom_norecursedirs",
+    "testing/test_collection.py::TestCollectFS::test_testpaths_ini",
+    "testing/test_collection.py::TestSession::test_parsearg",
+    "testing/test_collection.py::TestSession::test_collect_topdir",
+    "testing/test_collection.py::TestSession::test_collect_protocol_single_function",
+    "testing/test_collection.py::TestSession::test_collect_protocol_method",
+    "testing/test_collection.py::Test_getinitialnodes::test_global_file",
+    "testing/test_collection.py::Test_getinitialnodes::test_pkgfile",
+    "testing/test_collection.py::Test_genitems::test_check_collect_hashes",
+    "testing/test_collection.py::test_matchnodes_two_collections_same_file",
+    "testing/test_collection.py::TestNodekeywords::test_no_under",
+    "testing/test_collection.py::TestNodekeywords::test_issue345"
+  ],
+  "notes": "Pinned from SWE-bench Verified (difficulty '<15 min fix'). Used ONLY by the opt-in network test; the schema is shared with the offline fixture. See docs/milestone-6b-largerepo.md."
+}

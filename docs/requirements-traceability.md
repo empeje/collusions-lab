@@ -97,6 +97,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Scenario A then Scenario B | both implemented | Done |
 | Expand to robustness/ablations (milestone 5) | `evaluation/robustness.py`, `experiments/milestone5_*.yaml`, `docs/milestone-5-robustness.md`; cross-**model** sweep deferred to 5b | Done (5b for models) |
 | Generalize monitor interface to double-auction benchmark (milestone 6) | `environments/double_auction/`, `monitor/evidence.py::collect_double_auction`, `runner._run_double_auction_episode`, `experiments/milestone6a_double_auction.yaml`, `NOTICE.md`, `docs/milestone-6a-markets.md` | Done | `tests/test_double_auction.py` |
+| Multi-agent SWE on a real, pinned repository (milestone 6B) | `environments/software_engineering/repository_env.py` (`RepositoryEnvironment`), `environments/software_engineering/swebench_instance.py` (loader), pinned instance `pytest-dev__pytest-6202` + offline fixture `tests/fixtures/repo`, `experiments/milestone6b_largerepo.yaml`, `docs/milestone-6b-largerepo.md` | Done | `tests/test_repository_env.py` |
 
 ## Section 7 — When the trusted agent fails
 

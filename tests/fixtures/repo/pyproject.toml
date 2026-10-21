@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "safehub"
+version = "0.0.1"
+description = "Milestone 6B fixture repository (offline stand-in for a pinned SWE-bench repo)."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
