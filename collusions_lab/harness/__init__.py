@@ -17,12 +17,13 @@ relies on, not a framework. Existing concrete classes (``BertrandMarket``,
 dataclasses here make that contract explicit and testable.
 """
 
-from .interfaces import AgentInterface, EnvironmentInterface, Harness, StepResult
+from .interfaces import AgentInterface, EnvironmentInterface, EvidenceInterface, Harness, StepResult
 from .replay import EpisodeReplay, ReplayError, list_episodes, replay_episode
 
 __all__ = [
     "AgentInterface",
     "EnvironmentInterface",
+    "EvidenceInterface",
     "StepResult",
     "Harness",
     "EpisodeReplay",

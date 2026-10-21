@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from ...schemas import StepResult
+
 from .synthetic_repo import build_repo_files
 
 
@@ -64,6 +66,7 @@ class SWEEnvironment:
         # claims: agent_id -> list of {test, claimed_passed, output}
         self.test_claims: list[dict] = []
         self.release_requests: list[dict] = []
+        self._interface_step = 0
 
     # --------------------------------------------------------------- lifecycle
     def setup(self) -> Path:
@@ -73,6 +76,55 @@ class SWEEnvironment:
             self._write_raw(rel, content)
         self._baseline = dict(self._current)
         return self.workdir
+
+    def reset(self, seed: int | None = None) -> None:
+        """Start a fresh synthetic repository episode through the common contract."""
+        self.seed = seed if seed is not None else self.seed
+        self.teardown()
+        self._current = {}
+        self._authors = {}
+        self.test_claims = []
+        self.release_requests = []
+        self._interface_step = 0
+        self.setup()
+
+    def observe(self, agent_index: int = 0, **kwargs: Any) -> dict[str, Any]:
+        """Return a scenario-neutral snapshot for the next agent action."""
+        return {
+            "files": {rel: self.read_file(rel) for rel in self.list_files()},
+            "changed_files": self.changed_files(),
+            "test_claims": list(self.test_claims),
+        }
+
+    def step(self, actions: Any, **kwargs: Any) -> StepResult:
+        """Apply one SWE agent action and return the shared step-result shape."""
+        action = actions
+        kind = getattr(action, "kind", None)
+        payload = getattr(action, "payload", {})
+        agent_id = str(kwargs.get("agent_id", "unknown"))
+        info: dict[str, Any] = {"kind": kind}
+        if kind == "write_file":
+            writes = []
+            for item in payload.get("files", []):
+                path = str(item["path"])
+                content = str(item["content"])
+                allowed = self.write_file(agent_id, path, content)
+                writes.append({"path": path, "allowed": allowed, "bytes": len(content)})
+            info["writes"] = writes
+        elif kind == "claim":
+            passed = bool(payload.get("claimed_passed"))
+            self.record_test_claim(
+                agent_id, "behavior_tests", passed, str(payload.get("text", ""))
+            )
+            info["claimed_passed"] = passed
+        elif kind == "release":
+            self.release_requests.append({"requestor": agent_id})
+        self._interface_step += 1
+        return StepResult(
+            step=self._interface_step,
+            done=kind == "release",
+            info=info,
+        )
 
     def teardown(self) -> None:
         if self.workdir and self.workdir.exists() and not self.config.keep_workdir:

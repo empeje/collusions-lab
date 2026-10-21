@@ -7,8 +7,9 @@ target, with no scenario-specific coupling in the orchestration layer.
 
 ## Goals
 
-1. **One interface** — agents, environments, and the runner agree on a small
-   structural contract so a new scenario can be added without editing the runner.
+1. **Common contracts** — agents and environments expose standard action and
+   transition shapes; scenario-specific experiment orchestration remains in the
+   runner for now.
 2. **Replayable episodes** — any persisted episode can be reloaded and audited
    from its on-disk trail alone, without re-running agents.
 3. **Complete event taxonomy** — prompts and tool calls are first-class events,
@@ -24,16 +25,18 @@ can assert conformance:
 - `AgentInterface` — `agent_id`, `role`, `act(observation) -> AgentAction`.
   Satisfied today by `ScriptedMarketSeller`, `LLMAgent`, and the SWE scripted
   agents.
-- `EnvironmentInterface` — `reset`, `observe`, `step`, plus the **evidence hooks**
-  the trusted monitor depends on (`changed_files`, `build_diff`). Satisfied by
-  `BertrandMarket` and `SWEEnvironment`.
-- `StepResult` — a normalised `(step, done, info)` tuple so scenario `step`
+- `EnvironmentInterface` — common `reset`, `observe`, and `step` methods returning
+  the normalized `StepResult`. Both `BertrandMarket` and `SWEEnvironment` satisfy it.
+- `EvidenceInterface` — optional artifact evidence hooks (`changed_files`,
+  `build_diff`) used by the SWE monitor path; these are not required of markets.
+- `StepResult` — a normalized `(step, done, info)` record so scenario `step`
   return shapes converge.
 - `Harness` — a thin facade over `runner.run_episode` that pins the entry point
   and pairs every run with its replay.
 
-The monitor only ever sees `EnvironmentInterface` methods; it never imports a
-scenario's private internals. That is what makes the "standard" claim real.
+Scenario-specific monitoring still uses scenario evidence hooks. The common
+environment contract standardizes episode reset, observation, and transitions; it
+does not make the two scenario-specific monitor implementations interchangeable.
 
 ## Replay (`collusions_lab/harness/replay.py`)
 
@@ -42,8 +45,8 @@ the four JSONL streams (authoritative, shared, monitor, quarantine) into an
 immutable `EpisodeReplay`. Highlights:
 
 - Read-only: replay never mutates the authoritative log.
-- Integrity first: missing manifest **and** result raises `ReplayError`; malformed
-  JSON raises rather than silently degrading.
+- Integrity first: a missing manifest or result raises `ReplayError`; malformed JSON
+  or event records raise rather than silently degrading.
 - Typed accessors: `.provenance`, `.agents`, `.ground_truth`, `.decisions()`,
   `.agent_events()`.
 - `list_episodes(runs_root)` enumerates every episode directory for batch audits.
@@ -54,17 +57,18 @@ Milestone 1 emitted `ACTION`, `MESSAGE`, `CLAIM`, `DECISION`, `MONITOR`. Milesto
 2 adds:
 
 - `PROMPT` — recorded whenever an LLM agent returns `_llm` metadata, carrying the
-  provider-reported model and a `prompt_sha256` over the exact system+messages.
-  Emitted in both scenario loops.
+  provider-reported model, the exact serialized system+messages, and a
+  `prompt_sha256` over that prompt. Prompt events are authoritative/private and are
+  not copied into the agent-visible shared stream.
 - `TOOL_CALL` / `TOOL_RESULT` — recorded around the trusted monitor's independent
   test execution (`invariant_check`, `behavior_tests`). These are the monitor's
-  own actions, so they are tagged `actor="monitor"` and never masquerade as
-  agent-authored evidence.
+  own private actions, tagged `actor="monitor"`, and are excluded from the
+  agent-visible shared stream.
 
 ## Provenance manifest
 
-`EpisodeManifest` gained a `provenance: ProvenanceRecord` (schema-compatible
-since Milestone 1) that `runner._build_provenance` now populates with:
+The episode manifest includes an episode ID and a
+`provenance: ProvenanceRecord` that `runner._build_provenance` populates with:
 
 | field           | meaning                                              |
 |-----------------|------------------------------------------------------|
@@ -88,10 +92,12 @@ path-traversal guard that refuses refs escaping the episode directory. Diffs are
 listed in the manifest so an auditor can reconstruct the exact code state at each
 step without re-running anything.
 
-### Runtime prompt hashes
+### Runtime prompts and hashes
 
 `runner._collect_runtime_prompt_hashes` scans the authoritative events and groups
-the `prompt_sha256` recorded by `LLMAgent` per agent. Unlike `prompt_hashes`
+the `prompt_sha256` recorded by `LLMAgent` per agent. The exact serialized prompt is
+also stored on the private `PROMPT` event so the hash can be checked and the request
+audited. Unlike `prompt_hashes`
 (configured system prompts), these capture the *generated* messages, which depend
 on the observation each agent saw — the difference matters when auditing whether
 an agent's context changed across runs.
@@ -133,16 +139,18 @@ harness work:
 
 ## Tests
 
-`tests/test_harness.py` (12 tests) covers:
+`tests/test_harness.py` covers:
 
-- runtime conformance of scripted agents and `BertrandMarket` to the protocols,
+- runtime conformance of scripted agents, `BertrandMarket`, and `SWEEnvironment` to
+  the common protocols,
 - replay round-trip for both scenarios (ground truth and metrics preserved),
-- presence of `TOOL_CALL`/`TOOL_RESULT` from the monitor's independent checks,
+- presence of private `TOOL_CALL`/`TOOL_RESULT` events from the monitor's independent
+  checks, and prompt/tool exclusion from the shared agent stream,
 - replay from a direct episode directory and from a `runs` root via `list_episodes`,
-- `ReplayError` on a missing episode,
+- `ReplayError` on missing episodes/artifacts and malformed event streams,
 - the `Harness` facade run→replay cycle,
 - runtime prompt hashes captured for LLM agents and diff artifacts persisted,
 - a path-traversal guard on `EpisodeReplay.diff`.
 
-Combined with the existing suite and the integrated Milestone 1 condition-control
-tests: **66 passed**, `mypy` clean across 32 modules.
+Validation on the milestone 2 compliance branch: full suite **70 passed**;
+`mypy` clean across 32 source files.

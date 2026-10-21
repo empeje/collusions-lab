@@ -124,6 +124,7 @@ class LLMAgent(Agent):
                 "model": resp.model,
                 "tokens": resp.completion_tokens,
                 "prompt_sha256": hashlib.sha256(prompt_material.encode("utf-8")).hexdigest(),
+                "prompt": prompt_material,
             },
         )
         return action

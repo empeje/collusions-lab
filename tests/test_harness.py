@@ -5,6 +5,7 @@ import pytest
 
 from collusions_lab.harness import (
     AgentInterface,
+    EnvironmentInterface,
     EpisodeReplay,
     Harness,
     ReplayError,
@@ -68,10 +69,38 @@ def test_scripted_agents_satisfy_agent_interface():
 
 def test_market_satisfies_environment_interface():
     from collusions_lab.environments.markets.bertrand import BertrandMarket, MarketConfig
+    from collusions_lab.harness import StepResult
 
     market = BertrandMarket(MarketConfig(n_sellers=3))
-    market.reset()
+    market.reset(seed=11)
+    assert isinstance(market, EnvironmentInterface)
     assert market.observe(0) is not None
+    result = market.step([3] * 3)
+    assert isinstance(result, StepResult)
+    assert result.step == 1
+
+
+def test_swe_satisfies_environment_interface():
+    from collusions_lab.agents.core import AgentAction
+    from collusions_lab.environments.software_engineering.swe_env import SWEEnvironment
+    from collusions_lab.harness import EvidenceInterface, StepResult
+
+    env = SWEEnvironment()
+    try:
+        env.reset(seed=5)
+        assert isinstance(env, EnvironmentInterface)
+        assert isinstance(env, EvidenceInterface)
+        assert "files" in env.observe(0)
+        result = env.step(
+            AgentAction("write_file", {"files": [{"path": "acme_portal/new.py", "content": "x=1"}]}),
+            agent_id="implementer",
+        )
+        assert isinstance(result, StepResult)
+        assert result.step == 1
+        assert result.info["writes"][0]["allowed"] is True
+        assert "acme_portal/new.py" in env.changed_files()
+    finally:
+        env.teardown()
 
 
 # --------------------------------------------------------------------------- replay
@@ -111,6 +140,11 @@ def test_replay_records_tool_and_prompt_events(tmp_path: Path):
     assert EventType.TOOL_RESULT in types
     results = [e for e in replay.authoritative if e.type == EventType.TOOL_RESULT]
     assert any(r.content.get("tool") == "invariant_check" for r in results)
+    assert all(not e.visible_to_agents for e in replay.authoritative if e.type in {
+        EventType.TOOL_CALL, EventType.TOOL_RESULT, EventType.PROMPT
+    })
+    assert all(e.type not in {EventType.TOOL_CALL, EventType.TOOL_RESULT, EventType.PROMPT}
+               for e in replay.shared)
 
 
 def test_replay_market_roundtrip(tmp_path: Path):
@@ -146,6 +180,40 @@ def test_replay_direct_episode_dir(tmp_path: Path):
 def test_replay_missing_directory_raises(tmp_path: Path):
     with pytest.raises(ReplayError):
         replay_episode(tmp_path, "does-not-exist")
+
+
+@pytest.mark.parametrize("missing_artifact", ["manifest.json", "result.json"])
+def test_replay_requires_manifest_and_result(tmp_path: Path, missing_artifact: str):
+    run = RunConfig(
+        Scenario.MARKETS,
+        EpisodeCondition.INDEPENDENT_BASELINE,
+        _market_agents(3, deviant=False),
+        seed=1,
+        n_sellers=3,
+        market_steps=2,
+    )
+    result = run_episode(run, tmp_path)
+    episode_dir = tmp_path / result["episode_id"]
+    (episode_dir / missing_artifact).unlink()
+    with pytest.raises(ReplayError, match=missing_artifact):
+        replay_episode(episode_dir)
+
+
+def test_replay_wraps_malformed_event_stream(tmp_path: Path):
+    run = RunConfig(
+        Scenario.MARKETS,
+        EpisodeCondition.INDEPENDENT_BASELINE,
+        _market_agents(3, deviant=False),
+        seed=1,
+        n_sellers=3,
+        market_steps=2,
+    )
+    result = run_episode(run, tmp_path)
+    episode_dir = tmp_path / result["episode_id"]
+    with (episode_dir / "authoritative.jsonl").open("a", encoding="utf-8") as stream:
+        stream.write("{not-json}\n")
+    with pytest.raises(ReplayError, match="event stream"):
+        replay_episode(episode_dir)
 
 
 def test_list_episodes(tmp_path: Path):
@@ -214,6 +282,8 @@ def test_diff_artifact_path_traversal_guard(tmp_path: Path):
 
 
 def test_runtime_prompt_hashes_for_llm_agents(tmp_path: Path):
+    import hashlib
+
     from collusions_lab.schemas import AgentConfig as AC
 
     agents = [
@@ -240,4 +310,14 @@ def test_runtime_prompt_hashes_for_llm_agents(tmp_path: Path):
     hashes = replay.runtime_prompt_hashes
     assert hashes
     assert all(len(h) == 64 for hs in hashes.values() for h in hs)
+    prompt_events = [e for e in replay.authoritative if e.type == EventType.PROMPT]
+    assert prompt_events
+    for event in prompt_events:
+        metadata = event.content["llm_metadata"]
+        assert metadata["prompt"]
+        assert metadata["prompt_sha256"] == hashlib.sha256(
+            metadata["prompt"].encode("utf-8")
+        ).hexdigest()
+        assert not event.visible_to_agents
+    assert all(e.type != EventType.PROMPT for e in replay.shared)
 
