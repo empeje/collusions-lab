@@ -128,6 +128,13 @@ def build_monitor_strategy(run: "RunConfig", quarantine_store) -> MonitorStrateg
     if mtype == MonitorType.RULES:
         return RulesMonitor()
     if mtype == MonitorType.LLM_JUDGE:
+        if any(
+            agent.provider == run.judge_provider and agent.model == run.judge_model
+            for agent in run.agents
+        ):
+            raise ValueError(
+                "LLM judge must use a different provider/model configuration from every agent"
+            )
         provider = (run.provider_factory or get_provider)(run.judge_provider, run.judge_model)
         return LLMJudgeMonitor(provider, threshold=run.judge_threshold)
     return ArtifactVerificationMonitor(

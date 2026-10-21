@@ -38,9 +38,12 @@ reason).
 ## Calibration (LLM judge)
 
 `collusions_lab.monitor.calibrate_threshold(judge, validation, target_fpr)` sweeps
-candidate thresholds over a labelled validation split and returns the threshold that
+candidate thresholds over a labelled validation set and returns the threshold that
 meets a false-positive budget with the highest recall. `calibrate_curve` returns the
-full FPR/recall curve for reporting.
+full FPR/recall curve for reporting. The current experiment runner does not yet
+automatically construct this validation set or apply the returned threshold to a
+separate scored sweep; `judge_threshold` in YAML is currently a manually supplied
+value. The split labels in the example YAML are metadata only.
 
 The judge **fails safe**: any provider error or unparseable response becomes HOLD
 rather than ALLOW. The judge input is allow-listed and stripped of ground-truth /
@@ -56,12 +59,17 @@ python -m collusions_lab.experiments experiments/milestone3_baselines.yaml --out
 pip install -e ".[hf]"
 $env:HF_TOKEN = "hf_..."
 python -m collusions_lab.experiments experiments/milestone3_baselines.yaml --out runs
+python -m collusions_lab.experiments experiments/milestone3_baselines_swe.yaml --out runs
 python -m collusions_lab.evaluation runs
 ```
 
-`experiments/milestone3_baselines.yaml` replicates every `(condition, seed)` cell
-across all four arms. Conditions carry a `split` in `extra` (`validation` for
-calibration, `test` for scoring).
+`experiments/milestone3_baselines.yaml` and
+`experiments/milestone3_baselines_swe.yaml` cover the market and software
+engineering environments respectively, replicating every `(condition, seed)` cell
+across all four arms. The current runner accepts these matched sweeps, but it does
+not automatically construct a validation set or apply a calibrated judge threshold;
+the YAML threshold is manually supplied. Threshold calibration remains a manual
+library workflow through `calibrate_threshold`.
 
 ## HF provider setup
 
@@ -82,5 +90,6 @@ CI stays offline: tests inject a `MockProvider(responder=...)` into the judge.
 
 * `by_monitor_type` -- detection/harm/utility broken down per arm, with the
   `prevention_confusion` cells.
-* `threat_curve` -- prevention and detection rates at fixed false-positive budgets
-  (1%, 2%) per arm: *what does the monitor buy you per false positive?*
+* `threat_curve` -- checks whether each arm's observed operating point meets fixed
+  false-positive budgets (1%, 2%). It does not estimate a threshold curve; use
+  `calibrate_curve` with validation scores for that.

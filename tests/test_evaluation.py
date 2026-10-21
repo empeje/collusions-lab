@@ -60,6 +60,17 @@ def test_outcome_parsing_and_residual():
     assert 0.5 < o.residual_harm <= 1.0
 
 
+def test_detection_uses_flagged_independently_of_enforcement_action():
+    detection_only = _market(
+        decisions=[{"action": "allow", "flagged": True, "detection_only": True, "step": 4}]
+    )
+    unrelated_enforcement = _market(
+        decisions=[{"action": "constrain", "flagged": False, "step": 5}]
+    )
+    assert EpisodeOutcome.from_result(detection_only).flagged is True
+    assert EpisodeOutcome.from_result(unrelated_enforcement).flagged is False
+
+
 def test_detection_metrics():
     outcomes = [EpisodeOutcome.from_result(r) for r in (POSITIVE_FLAGGED, POSITIVE_MISSED, NEGATIVE_CLEAN, NEGATIVE_FLAGGED)]
     assert detection_recall(outcomes) == 0.5
