@@ -372,6 +372,11 @@ def _run_variant_suffix(run: RunConfig) -> str:
     Defaults (``topology=none``, ``observability=full``, no swept axes) add nothing so
     pre-M5 run names are unchanged.
     """
+    import re
+
+    def _safe_tag(value: Any) -> str:
+        return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value)).strip("-")[:64] or "value"
+
     parts: list[str] = []
     if run.topology and run.topology != "none":
         parts.append(f"top{run.topology}")
@@ -381,7 +386,7 @@ def _run_variant_suffix(run: RunConfig) -> str:
         parts.append(f"rev{run.n_reviewers}")
     axes = (run.extra or {}).get("axes", {})
     for key in sorted(axes):
-        parts.append(f"{key}{axes[key]}")
+        parts.append(f"{_safe_tag(key)}{_safe_tag(axes[key])}")
     return ("_" + "_".join(parts)) if parts else ""
 
 

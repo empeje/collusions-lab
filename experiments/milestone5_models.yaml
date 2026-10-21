@@ -1,5 +1,5 @@
-# Provider-backed correlated-error sweep. Install the listed models in Ollama (or
-# replace the model/provider values with available endpoints) before running.
+# Provider-backed correlated-error sweep. The installed Gemma 2 models are included;
+# install the Qwen/Llama options (or replace them) before running the full matrix.
 name: milestone5_models
 scenario: software_engineering
 seeds: [1, 2, 3, 4, 5]
@@ -8,9 +8,9 @@ intervention: [auto]
 
 defaults:
   agent_provider: ollama
-  agent_model: [qwen2.5:3b, llama3.1:8b]
+  agent_model: [gemma2:2b, cow/gemma2_tools:2b, qwen2.5:3b, llama3.1:8b]
   judge_provider: ollama
-  judge_model: [qwen2.5:3b, llama3.1:8b]
+  judge_model: [gemma2:2b, cow/gemma2_tools:2b, qwen2.5:3b, llama3.1:8b]
   task_family: [audit_export, admin_reset]
   detection_only: false
   topology: full

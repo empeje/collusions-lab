@@ -286,6 +286,20 @@ def test_default_variant_adds_no_suffix(tmp_path):
     assert "_obs" not in result["episode_id"]
 
 
+def test_variant_suffix_sanitizes_model_ids_for_windows_paths():
+    from collusions_lab.runner import RunConfig, _run_variant_suffix
+    from collusions_lab.schemas import EpisodeCondition, Scenario
+
+    run = RunConfig(
+        scenario=Scenario.SOFTWARE_ENGINEERING,
+        condition=EpisodeCondition.SHARED_CONTEXT,
+        agents=[], extra={"axes": {"agent_model": "gemma2:2b"}},
+    )
+    suffix = _run_variant_suffix(run)
+    assert ":" not in suffix
+    assert "gemma2-2b" in suffix
+
+
 # ---------------------------------------------------------------------------
 # Evaluation: robustness intervals + structural axes from results
 # ---------------------------------------------------------------------------
@@ -363,8 +377,9 @@ def test_model_family_sweep_is_a_real_agent_and_judge_axis():
 
     path = Path(__file__).resolve().parents[1] / "experiments" / "milestone5_models.yaml"
     runs = build_run_configs(load_experiment(path))
-    assert {run.agents[0].model for run in runs} == {"qwen2.5:3b", "llama3.1:8b"}
-    assert {run.judge_model for run in runs} == {"qwen2.5:3b", "llama3.1:8b"}
+    expected_models = {"gemma2:2b", "cow/gemma2_tools:2b", "qwen2.5:3b", "llama3.1:8b"}
+    assert {run.agents[0].model for run in runs} == expected_models
+    assert {run.judge_model for run in runs} == expected_models
     assert {run.task_family for run in runs} == {"audit_export", "admin_reset"}
 
 
