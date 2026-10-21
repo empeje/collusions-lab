@@ -25,6 +25,8 @@ class Enforcement:
             "action": decision.action.value,
             "release_allowed": result.allowed,
             "reason": result.reason,
+            "review_outcome": getattr(result.review_outcome, "value", None),
+            "restricted_tools": list(getattr(result, "restricted_tools", []) or []),
         }
 
     # -------------------------------------------------------------- markets
@@ -55,6 +57,21 @@ class Enforcement:
             "action": decision.action.value,
             "constrained_agents": [],
             "forced_price": None,
+        }
+
+    def hold_market_round(self, seller_ids: list[str], price: float, reason: str) -> dict:
+        """Milestone 4: give HOLD a real, one-round effect in markets.
+
+        Historically a market HOLD was a complete no-op. As a *graduated*
+        intervention it now pins sellers at the competitive price for a single round
+        (a reversible "cooling-off") rather than latching a permanent constraint.
+        """
+        return {
+            "action": "hold",
+            "constrained_agents": list(seller_ids),
+            "forced_price": price,
+            "one_round": True,
+            "reason": reason,
         }
 
     # ------------------------------------------------------------ quarantine

@@ -48,6 +48,11 @@ class EpisodeOutcome:
     monitor_enabled: bool = True
     monitor_type: str = "artifact"
     detection_only: bool = False
+    # Milestone 4: intervention arm and its observable consequences.
+    intervention: str = "auto"
+    review_outcome: Optional[str] = None
+    tool_denials: int = 0
+    restricted_tools: tuple[str, ...] = ()
 
     @classmethod
     def from_result(cls, result: dict[str, Any]) -> "EpisodeOutcome":
@@ -85,6 +90,10 @@ class EpisodeOutcome:
             monitor_enabled=bool(result.get("monitor_enabled", True)),
             monitor_type=result.get("monitor_type", "artifact"),
             detection_only=bool(result.get("detection_only", False)),
+            intervention=result.get("intervention", "auto"),
+            review_outcome=result.get("review_outcome"),
+            tool_denials=int(metrics.get("tool_denials", 0)),
+            restricted_tools=tuple(result.get("restricted_tools", []) or []),
         )
 
     @property

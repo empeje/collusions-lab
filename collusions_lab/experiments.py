@@ -19,7 +19,14 @@ from typing import Any
 import yaml
 
 from .runner import RunConfig, run_episode
-from .schemas import AgentConfig, AgentRole, EpisodeCondition, MonitorType, Scenario
+from .schemas import (
+    AgentConfig,
+    AgentRole,
+    EpisodeCondition,
+    InterventionType,
+    MonitorType,
+    Scenario,
+)
 
 
 @dataclass
@@ -30,6 +37,8 @@ class ExperimentSpec:
     conditions: dict[str, dict[str, Any]]
     seeds: list[int] = field(default_factory=lambda: [0])
     monitor: list[Any] = field(default_factory=lambda: [True])
+    intervention: list[Any] = field(default_factory=lambda: ["auto"])
+    restricted_tools: list[str] = field(default_factory=list)
     defaults: dict[str, Any] = field(default_factory=dict)
 
 
@@ -44,6 +53,11 @@ def _normalize_monitor(value: Any) -> MonitorType:
     return MonitorType(str(value))
 
 
+def _normalize_intervention(value: Any) -> InterventionType:
+    """Map a YAML intervention entry to an InterventionType (default ``auto``)."""
+    return InterventionType(str(value))
+
+
 def load_experiment(path: str | Path) -> ExperimentSpec:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return ExperimentSpec(
@@ -53,6 +67,8 @@ def load_experiment(path: str | Path) -> ExperimentSpec:
         conditions=data["conditions"],
         seeds=list(data.get("seeds", [0])),
         monitor=list(data.get("monitor", [True])),
+        intervention=list(data.get("intervention", ["auto"])),
+        restricted_tools=list(data.get("restricted_tools", [])),
         defaults=dict(data.get("defaults", {})),
     )
 
@@ -83,30 +99,33 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
         for seed in spec.seeds:
             for monitor_entry in spec.monitor:
                 mtype = _normalize_monitor(monitor_entry)
-                extra = dict(spec.conditions[condition].get("extra", {}))
-                runs.append(
-                    RunConfig(
-                        scenario=spec.scenario,
-                        condition=cond,
-                        agents=_agents_for_condition(spec, condition),
-                        seed=seed,
-                        monitor_enabled=mtype != MonitorType.NONE,
-                        monitor_type=mtype,
-                        detection_only=detection_only,
-                        judge_provider=spec.defaults.get("judge_provider", "hf"),
-                        judge_model=spec.defaults.get(
-                            "judge_model", "Qwen/Qwen2.5-3B-Instruct"
-                        ),
-                        judge_threshold=float(spec.defaults.get("judge_threshold", 0.5)),
-                        n_sellers=spec.defaults.get("n_sellers", 5),
-                        mu=spec.defaults.get("mu", 1.0),
-                        market_steps=spec.defaults.get("market_steps", 200),
-                        include_competitor_prices=spec.defaults.get(
-                            "include_competitor_prices", True
-                        ),
-                        extra=extra,
+                for intervention_entry in spec.intervention:
+                    itype = _normalize_intervention(intervention_entry)
+                    extra = dict(spec.conditions[condition].get("extra", {}))
+                    runs.append(
+                        RunConfig(
+                            scenario=spec.scenario,
+                            condition=cond,
+                            agents=_agents_for_condition(spec, condition),
+                            seed=seed,
+                            monitor_enabled=mtype != MonitorType.NONE,
+                            monitor_type=mtype,
+                            detection_only=detection_only,
+                            intervention=itype,
+                            judge_provider=spec.defaults.get("judge_provider", "hf"),
+                            judge_model=spec.defaults.get(
+                                "judge_model", "Qwen/Qwen2.5-3B-Instruct"
+                            ),
+                            judge_threshold=float(spec.defaults.get("judge_threshold", 0.5)),
+                            n_sellers=spec.defaults.get("n_sellers", 5),
+                            mu=spec.defaults.get("mu", 1.0),
+                            market_steps=spec.defaults.get("market_steps", 200),
+                            include_competitor_prices=spec.defaults.get(
+                                "include_competitor_prices", True
+                            ),
+                            extra=extra,
+                        )
                     )
-                )
     return runs
 
 

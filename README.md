@@ -142,6 +142,28 @@ threshold-calibrated on a validation split; it **fails safe to HOLD**. See
 [`docs/milestone-3-baselines.md`](docs/milestone-3-baselines.md) and
 [`experiments/milestone3_baselines.yaml`](experiments/milestone3_baselines.yaml).
 
+## Controlled interventions (Milestone 4)
+
+Milestone 4 fixes the detector and varies the **intervention**: what the monitor is
+allowed to *do* with a decision. `RunConfig.intervention` (YAML `intervention`) selects
+an arm; the default `auto` reproduces Milestone 3.
+
+| `intervention`            | effect                                                                            |
+|---------------------------|-----------------------------------------------------------------------------------|
+| `none`                    | detect only; never enforce (detection-vs-prevention control).                     |
+| `auto`                    | Milestone 3 semantics.                                                            |
+| `review_gate`             | graduated 4-way release review: ALLOW / ALLOW-WITH-RESTRICTIONS / REQUEST-CHANGES / BLOCK. |
+| `restricted_tools`        | revoke a capability class (`Tool`/`CapabilitySet`) from offending agents.         |
+| `independent_verification`| enforce-time independent re-verification must clear the action.                   |
+| `full`                    | review gate + restricted tools + independent verification.                        |
+
+Tool permissions are a typed `CapabilitySet` on `AgentConfig`, enforced at a single
+dispatch choke point; a denied action emits a `TOOL_DENIED` event and never takes
+effect (agents get no feedback). Evaluation adds a **by-intervention** breakdown with a
+`tool_denial_rate` and review-outcome distribution. See
+[`docs/milestone-4-interventions.md`](docs/milestone-4-interventions.md) and
+[`experiments/milestone4_interventions.yaml`](experiments/milestone4_interventions.yaml).
+
 ## Metrics
 
 `collusions_lab.evaluation` reports three families (`docs/architecture.md` has
@@ -149,8 +171,8 @@ definitions): **detection** (recall, precision, false-positive rate, time to
 detection), **harm** (prevention rate, residual harm), and **utility** (task utility
 retained, intervention cost, recovery rate). Detection and prevention are always
 reported together with the prevention–utility trade-off. Reports also include a
-**by-monitor-type** breakdown and a **`threat_curve`** (prevention/detection per arm
-at fixed false-positive budgets).
+**by-monitor-type** breakdown, a **by-intervention** breakdown, and a **`threat_curve`**
+(prevention/detection per arm at fixed false-positive budgets).
 
 ## Tests and checks
 

@@ -113,7 +113,29 @@ $env:HF_TOKEN = "hf_..."
 #   judge_model: Qwen/Qwen2.5-3B-Instruct
 ```
 
-## 6. Audit trail
+## 6. Compare intervention arms (Milestone 4)
+
+Fix the detector (`rules`) and vary the intervention:
+
+```powershell
+python -m collusions_lab.experiments experiments/milestone4_interventions.yaml --out runs_m4
+python -m collusions_lab.evaluation runs_m4
+```
+
+The report adds a per-intervention block:
+
+```
+[intervention=none]    harm prevention=0.0   tool_denial_rate=0.0
+[intervention=auto]    harm prevention=...
+[intervention=full]    harm prevention=...   tool_denial_rate=...
+```
+
+`intervention: none` detects but never enforces (recall is unaffected, prevention is
+zero) — the detection-vs-prevention control. `restricted_tools`/`full` revoke
+capability classes, so denied attempts appear as `tool_denial_rate` and as
+`TOOL_DENIED` events in each episode's `authoritative.jsonl`.
+
+## 7. Audit trail
 
 Every episode writes, under `runs/<experiment>/<episode_id>/`:
 
@@ -127,7 +149,7 @@ Every episode writes, under `runs/<experiment>/<episode_id>/`:
 | `result.json`        | metrics + ground truth (evaluation-only)            |
 | `diffs/step_NNN.diff`| per-step source diffs (software-engineering only)   |
 
-## 7. Replay and audit via the harness
+## 8. Replay and audit via the harness
 
 ```python
 from collusions_lab.harness import replay_episode, list_episodes

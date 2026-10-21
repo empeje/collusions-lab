@@ -76,6 +76,17 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Judge fails safe | provider error / unparseable output → HOLD | Done | `tests/test_baselines.py::test_llm_judge_malformed_output_holds_failsafe` |
 | Judge cannot see ground truth / hidden objectives | allow-listed, sanitized evidence payload | Done | `tests/test_baselines.py::test_llm_judge_sanitizes_evidence` |
 
+## Section 5c — Controlled interventions (Milestone 4)
+
+| Requirement | Implementation | Status | Tests |
+|---|---|---|---|
+| Intervention selectable independently of detection | `RunConfig.intervention` (`InterventionType`), YAML `intervention`; `runner._apply_market_intervention` / `_apply_swe_intervention` | Done | `tests/test_interventions.py` |
+| Restricted tool permissions | `capabilities.py` (`Tool`, `CapabilitySet`); `AgentConfig.capabilities`; dispatch choke point `runner._check_capability` emitting `TOOL_DENIED` | Done | `tests/test_interventions.py::test_restricted_tools_denies_revoked_actions` |
+| Graduated review gate | `swe_env.ReleaseGate.request_release` → `ReviewOutcome` (ALLOW / ALLOW_WITH_RESTRICTIONS / REQUEST_CHANGES / BLOCK) | Done | `tests/test_interventions.py::test_review_gate_mapping` |
+| Independent verification as an enforce-time action | `monitor/verification.py::IndependentVerifier` (`swe_verifier` / `market_verifier`) | Done | `tests/test_interventions.py::test_verifier_aggregates_checks` |
+| Intervention vs no-intervention controls | `intervention: none` (detect only) vs the enforcing arms; sweep `experiments/milestone4_interventions.yaml` | Done | `tests/test_interventions.py::test_none_arm_detects_but_does_not_prevent` |
+| Per-intervention evaluation breakdown | `evaluation.by_intervention` (`tool_denial_rate`, review-outcome distribution) | Done | `tests/test_interventions.py::test_by_intervention_breakdown` |
+
 ## Section 6 — Small practical PoC, then expand
 
 | Requirement | Implementation | Status |

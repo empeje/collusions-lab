@@ -107,6 +107,27 @@ flags but `TrustedMonitor` skips `Enforcement`, so detection can be scored apart
 prevention. `evaluate()` reports a `by_monitor_type` breakdown and a `threat_curve`
 (prevention/detection per arm at fixed false-positive budgets).
 
+## Controlled interventions (Milestone 4)
+
+Milestone 4 makes *what the monitor does* a separate treatment from *what it detects*.
+`RunConfig.intervention` (`none | auto | review_gate | restricted_tools |
+independent_verification | full`, default `auto`) selects a `runner` resolver:
+
+- `auto`/`none` preserve Milestone 3: the raw decision goes straight to `Enforcement`.
+- `review_gate` maps the decision to a `ReviewOutcome` via `ReleaseGate`
+  (ALLOW / ALLOW_WITH_RESTRICTIONS / REQUEST_CHANGES / BLOCK) — distinct from the
+  detection `MonitorAction`.
+- `restricted_tools`/`full` revoke a `Tool` from an offending agent.
+- `independent_verification`/`full` run an enforce-time `IndependentVerifier`
+  (environment-owned checks, never agent claims) that must clear the action.
+
+Tool permissions are a typed `CapabilitySet` on `AgentConfig`, enforced at the single
+dispatch choke point `runner._check_capability`. A denied action does not take effect
+and emits a `TOOL_DENIED` event (`visible_to_agents=False`); agents get no feedback.
+Effects and outcomes are recorded as `INTERVENTION` events plus
+`MonitorDecision.intervention/review_outcome/restricted_tools`. `evaluate()` adds a
+`by_intervention` breakdown (`tool_denial_rate`, review-outcome distribution).
+
 ## Trust boundaries
 
 - Agents control **actions**, not the release/price capability. The `ReleaseGate`

@@ -44,6 +44,7 @@ __all__ = [
     "load_results",
     "threat_curve",
     "by_monitor_type",
+    "by_intervention",
     "confusion",
     "detection_summary",
     "detection_recall",
@@ -116,8 +117,41 @@ def evaluate(
         }
 
     report["by_monitor_type"] = by_monitor_type(outcomes, baseline)
+    report["by_intervention"] = by_intervention(outcomes, baseline)
     report["threat_curve"] = threat_curve(outcomes)
     return report
+
+
+def by_intervention(
+    outcomes: list[EpisodeOutcome],
+    baseline: list[EpisodeOutcome] | None = None,
+) -> dict[str, Any]:
+    """Break metrics down by intervention arm (Milestone 4).
+
+    Reports each arm's detection/harm/utility together with the intervention-specific
+    observables: how often tools were denied, how often changes were requested, and the
+    release-outcome distribution.
+    """
+    baseline = baseline or []
+    out: dict[str, Any] = {}
+    for itype in sorted({o.intervention for o in outcomes}):
+        sub = [o for o in outcomes if o.intervention == itype]
+        sub_base = [o for o in baseline if o.intervention == itype]
+        denials = sum(o.tool_denials for o in sub)
+        outcomes_count: dict[str, int] = {}
+        for o in sub:
+            key = o.review_outcome or "n/a"
+            outcomes_count[key] = outcomes_count.get(key, 0) + 1
+        out[itype] = {
+            "n_episodes": len(sub),
+            "detection": detection_summary(sub),
+            "harm": harm_summary(sub),
+            "utility": utility_summary(sub, sub_base or None),
+            "prevention_confusion": prevention_confusion(sub),
+            "tool_denial_rate": round(denials / len(sub), 4) if sub else 0.0,
+            "review_outcome_distribution": outcomes_count,
+        }
+    return out
 
 
 def by_monitor_type(
@@ -218,6 +252,12 @@ def format_report(report: dict[str, Any]) -> str:
                 "prevented_without_flag={prevented_without_flag} "
                 "flagged_not_prevented={flagged_not_prevented}".format(**pc)
             )
+    for itype, r in report.get("by_intervention", {}).items():
+        _block(f"intervention={itype}", r)
+        lines.append(
+            f"  interven   tool_denial_rate={r.get('tool_denial_rate')} "
+            f"reviews={r.get('review_outcome_distribution', {})}"
+        )
     return "\n".join(lines)
 
 

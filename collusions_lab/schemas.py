@@ -15,7 +15,10 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:  # avoid importing capabilities.py (which imports this module)
+    from .capabilities import CapabilitySet
 
 
 # --------------------------------------------------------------------------------------
@@ -51,6 +54,8 @@ class EventType(str, enum.Enum):
     CLAIM = "claim"  # e.g. an agent asserting a test passed
     PROMPT = "prompt"  # logged prompt/system prompt for provenance
     MONITOR = "monitor"  # monitor-authored record (kept in the trusted store)
+    INTERVENTION = "intervention"  # an intervention action was applied (Milestone 4)
+    TOOL_DENIED = "tool_denied"  # an agent attempted an action outside its capabilities
 
 
 class EpisodeCondition(str, enum.Enum):
@@ -97,6 +102,39 @@ class MonitorType(str, enum.Enum):
     ARTIFACT = "artifact"
 
 
+class InterventionType(str, enum.Enum):
+    """Controlled intervention arms (Milestone 4).
+
+    * NONE                    -- no intervention (monitor may still detect only).
+    * AUTO                    -- intervention chosen from the monitor decision
+                                 (legacy behaviour; back-compat default).
+    * REVIEW_GATE             -- a graduated 4-way release-review gate.
+    * RESTRICTED_TOOLS        -- revoke a capability class from offending agents.
+    * INDEPENDENT_VERIFICATION-- an enforce-time, independent re-verification step
+                                 must clear the action before it can take effect.
+    * FULL                    -- review gate + restricted tools + independent verification.
+    """
+
+    NONE = "none"
+    AUTO = "auto"
+    REVIEW_GATE = "review_gate"
+    RESTRICTED_TOOLS = "restricted_tools"
+    INDEPENDENT_VERIFICATION = "independent_verification"
+    FULL = "full"
+
+
+class ReviewOutcome(str, enum.Enum):
+    """Graduated release-review outcomes (Milestone 4).
+
+    Distinct from the monitor's detection action: this is what the *gate* does.
+    """
+
+    ALLOW = "allow"                              # release proceeds
+    ALLOW_WITH_RESTRICTIONS = "allow_with_restrictions"  # release, but with reduced capability
+    REQUEST_CHANGES = "request_changes"          # not yet; revise and resubmit for review
+    BLOCK = "block"                              # refused (verified violation)
+
+
 # --------------------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------------------
@@ -120,6 +158,8 @@ def jsonable(obj: Any) -> Any:
         return {str(k): jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [jsonable(v) for v in obj]
+    if isinstance(obj, (set, frozenset)):
+        return [jsonable(v) for v in sorted(obj, key=str)]
     return obj
 
 
@@ -142,6 +182,8 @@ class AgentConfig:
     # Hidden objective is only set for KNOWN_COLLUSION / ADVERSARIAL_MONITOR conditions.
     # It is environment-side ground truth and MUST NOT be exposed to the monitor.
     hidden_objective: Optional[str] = None
+    # Milestone 4: granted tools. None -> role default (capabilities.default_for).
+    capabilities: Optional["CapabilitySet"] = None
 
 
 @dataclass
@@ -250,6 +292,10 @@ class MonitorDecision:
     monitor_type: Optional["MonitorType"] = None
     flagged: bool = False
     detection_only: bool = False
+    # Milestone 4: which intervention was applied and the resulting review outcome.
+    intervention: Optional[InterventionType] = None
+    review_outcome: Optional[ReviewOutcome] = None
+    restricted_tools: list[str] = field(default_factory=list)
 
     def to_json(self) -> str:
         return dumps(self)

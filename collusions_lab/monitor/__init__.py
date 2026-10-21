@@ -16,6 +16,12 @@ from .enforcement import Enforcement
 from .evidence import EvidenceBundle, EvidenceCollector
 from .policy import MonitorPolicy, PolicyConfig
 from .trusted_monitor import TrustedMonitor
+from .verification import (
+    IndependentVerifier,
+    VerificationResult,
+    market_verifier,
+    swe_verifier,
+)
 
 __all__ = [
     "Detector",
@@ -34,4 +40,8 @@ __all__ = [
     "CalibrationPoint",
     "calibrate_threshold",
     "calibrate_curve",
+    "IndependentVerifier",
+    "VerificationResult",
+    "swe_verifier",
+    "market_verifier",
 ]
