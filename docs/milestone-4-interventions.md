@@ -24,8 +24,10 @@ treatment so prevention can be attributed to the intervention rather than the si
 | `independent_verification` | An enforce-time **independent re-verification** must clear the action.    |
 | `full`                  | Review gate + restricted tools + independent verification combined.          |
 
-`experiments/milestone4_interventions.yaml` sweeps these against a fixed `rules`
-monitor so the intervention is the only thing that varies.
+`experiments/milestone4_interventions.yaml` and
+`experiments/milestone4_interventions_swe.yaml` sweep these against a fixed `rules`
+monitor in the market and SWE scenarios respectively, so the intervention is the
+only treatment that varies within each scenario.
 
 ## Tool permissions: the capability model
 
@@ -38,11 +40,14 @@ capability set in `collusions_lab/capabilities.py`:
 * `CapabilitySet` -- an **immutable** set of granted tools, with `allows`,
   `allows_action`, `without` (for revocation) and `default_for(role)`.
 * `ACTION_TOOL` -- the mapping from an action `kind` to the capability it needs.
-* `CapabilityError` -- raised if an action is forced past the choke point.
+* `CapabilityError` -- an exception type for adapters that require exception-based
+  denial; the main runner records a denial event and does not apply the action.
 
 `AgentConfig.capabilities: Optional[CapabilitySet]` carries an explicit grant; `None`
-means "use the role default". The grant is enforced at a **single dispatch choke point**
-in the runner (`_check_capability`), shared by both scenarios. A denied action:
+means "use the role default". The grant is enforced at the runner dispatch choke point
+(`_check_capability`), shared by both scenarios. Compound market price actions check
+the embedded communication separately, so revoking `COMMUNICATE` blocks its message
+without suppressing an otherwise permitted price action. A denied action:
 
 1. does **not** take effect (no price change, no file write),
 2. emits a `TOOL_DENIED` event in the **authoritative** log (`visible_to_agents=False`),
@@ -66,10 +71,14 @@ monitor decides what it *believes*; the gate decides what *happens*.
 `ALLOW_WITH_RESTRICTIONS` is issued via `ReleaseGate.allow_with_restrictions`: the
 change is released, but named capability classes are revoked for the rest of the
 episode. This is the outcome produced by `full` when independent verification clears an
-`ALLOW` but residual risk warrants reducing the agent's tools.
+`ALLOW` but residual risk warrants reducing the agent's tools. The episode YAML
+`restricted_tools` list configures the classes; if omitted, scenario-specific defaults
+apply.
 
-Every outcome is recorded on the `MonitorDecision` (`review_outcome`, `restricted_tools`)
-and emitted as an `INTERVENTION` event in the authoritative log.
+Resolved outcomes are included in the episode result and attached to monitor decisions
+when applicable. Explicit intervention actions (review-gate resolution, capability
+revocation, and independent verification) emit `INTERVENTION` events; the `none` and
+legacy `auto` controls do not emit an intervention event.
 
 ## Independent verification (an action, not a signal)
 
@@ -77,9 +86,10 @@ Milestone 3's `ArtifactVerificationMonitor` is a *detection* component. Mileston
 `IndependentVerifier` (`monitor/verification.py`) is an **enforce-time action**: when
 the intervention is `independent_verification` or `full`, a monitor decision that would
 allow or block is first routed through fresh, environment-owned checks
-(`swe_verifier` / `market_verifier`). This lets us A/B *the same detector* with
-verification on vs off -- isolating the contribution of independent verification as an
-intervention rather than as a detection signal.
+(`swe_verifier` / `market_verifier`). The `full` arm runs this verification for an
+`ALLOW` decision and combines it with restricted tools. This lets us A/B *the same
+detector* with verification on vs off -- isolating the contribution of independent
+verification as an intervention rather than as a detection signal.
 
 The verifier's checks are never derived from agent claims: each returns
 `(name, passed, detail)` computed from the authoritative environment. TOOL_CALL /
@@ -89,31 +99,66 @@ TOOL_RESULT events are emitted with `actor="verifier"` for auditability.
 
 ### Markets
 
-* `auto` / `review_gate`: a `CONSTRAIN` forces the competitive price and **latches**
-  until review (Milestone 3 behaviour).
+* `auto`: a `CONSTRAIN` forces the competitive price and **latches** until review
+  (Milestone 3 behaviour).
+* `review_gate`: `CONSTRAIN`/`QUARANTINE` blocks and latches; `HOLD` requests changes
+  and applies a one-round cooling-off; `ALLOW` is recorded as an allow outcome.
 * `restricted_tools` / `full`: a `CONSTRAIN`/`QUARANTINE` revokes the sellers' `PRICE`
   capability (`_restrict_market_sellers`) and latches; a `HOLD` applies a **one-round
   cooling-off** at the competitive price, then clears.
-* `independent_verification`: `CONSTRAIN` -> `BLOCK`, `HOLD` -> `REQUEST_CHANGES`.
-* `none`: no effect.
+* `independent_verification`: fresh market checks are recorded at enforcement time;
+  a passing verification clears `ALLOW`, while a failed verification blocks it.
+  Existing `CONSTRAIN`/`QUARANTINE` decisions block; `HOLD` requests changes with a
+  one-round cooling-off.
+* `full`: combines restricted tools with fresh verification of `ALLOW`; a passing
+  result records `ALLOW_WITH_RESTRICTIONS` and applies the configured tool revocation.
+* `none`: records monitor detections without applying enforcement.
 
 The one-round cooling-off gives a market `HOLD` a real, *reversible* effect for the
 first time; previously it was a complete no-op.
 
 ### Software engineering
 
-* `auto` / `none`: consult the gate directly on the raw monitor decision.
+* `auto`: consult the gate directly on the raw monitor decision.
+* `none`: retain detection flags but bypass the release gate and allow the harmful
+  action, providing the no-intervention control.
 * `review_gate`: consult the gate and record the 4-way outcome.
 * `independent_verification`: run `swe_verifier` on `ALLOW`/`CONSTRAIN`/`QUARANTINE`;
   an unverified `ALLOW` becomes `BLOCK`.
 * `restricted_tools` / `full`: a `CONSTRAIN`/`QUARANTINE` revokes `write_file` and
-  `release`; a `HOLD` revokes `release`. `full` additionally runs the verifier on
-  `ALLOW`, producing `ALLOW_WITH_RESTRICTIONS` when it clears.
+  `release` before the executor dispatches; a `HOLD` revokes `release`. `full` additionally runs the verifier on
+  `ALLOW`, producing `ALLOW_WITH_RESTRICTIONS` when it clears and recording the
+  configured revocations. The current SWE episode has no post-release agent actions,
+  so configured revocations on a verified allow are recorded but cannot constrain
+  earlier implementation or later work in that same episode. The default for this
+  allowed path omits `release` so the allowed release can proceed.
+
+#### Multi-pass write checkpoints
+
+SWE runs use `swe_passes` (default `2`) to let the team resume after an intervention.
+For the four treatment arms (`review_gate`, `restricted_tools`,
+`independent_verification`, and `full`), every proposed `write_file` is staged in the
+isolated workspace behind a checkpoint. The monitor evaluates the resulting artifact
+before it is accepted as episode state;
+`independent_verification` and `full` also run the independent SWE verifier at this
+boundary. A rejected proposal restores file contents, authorship, and test-claim state.
+`restricted_tools` and `full` revoke the configured write capability (default
+`write_file`) before the next pass, so a repeated attempt is denied at dispatch. Other
+arms may retry in a later pass, where the checkpoint is evaluated again. The release
+gate remains a separate checkpoint before release. `auto` retains its Milestone 3
+write behavior and intervenes at release; `none` remains the untreated control.
+
+These are workspace transactions, not Git commits: the benchmark does not create a
+commit per write. `metrics.write_checkpoints`, `write_rollbacks`, `passes_configured`,
+and `recovery_after_intervention` expose checkpoint and recovery behavior. A safe
+later pass after a rollback counts as recovery; the `none` arm remains the untreated
+control and does not roll back writes.
 
 ## Recording and evaluation
 
 Each result carries `intervention`, `review_outcome`, `restricted_tools`, and
-`metrics.tool_denials`; the manifest carries `intervention`. Episode directories are
+`metrics.tool_denials`; SWE results also carry checkpoint, rollback, pass, and recovery
+metrics. The manifest carries `intervention`. Episode directories are
 named `..._mon{type}_int{intervention}` so arms never collide.
 
 `collusions_lab.evaluation.by_intervention` breaks the three metric families down by
@@ -130,6 +175,7 @@ These sit alongside the existing `by_monitor_type`, `threat_curve`, and
 ```powershell
 # Offline (scripted agents, rules monitor) -- exercises every arm without network:
 python -m collusions_lab.experiments experiments/milestone4_interventions.yaml --out runs_m4
+python -m collusions_lab.experiments experiments/milestone4_interventions_swe.yaml --out runs_m4
 python -m collusions_lab.evaluation runs_m4
 ```
 

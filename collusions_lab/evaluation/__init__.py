@@ -42,6 +42,7 @@ from .robustness import (
     axis_values,
     by_axis,
     bootstrap_ci,
+    paired_bootstrap_ci,
     robustness_intervals,
 )
 
@@ -54,6 +55,7 @@ __all__ = [
     "by_intervention",
     "by_axis",
     "bootstrap_ci",
+    "paired_bootstrap_ci",
     "robustness_intervals",
     "ROBUSTNESS_AXES",
     "confusion",
@@ -115,7 +117,7 @@ def evaluate(
         },
         "by_scenario": {},
     }
-    for scenario in ("markets", "software_engineering"):
+    for scenario in ("markets", "software_engineering", "double_auction"):
         sub = _subset(outcomes, scenario)
         if not sub:
             continue
@@ -126,6 +128,18 @@ def evaluate(
             "harm": harm_summary(sub),
             "utility": utility_summary(sub, sub_base or None),
         }
+        if scenario == "double_auction":
+            raw = [r for r in results if r.get("scenario") == scenario]
+            metrics = [r.get("metrics", {}) for r in raw]
+            def _mean_metric(key: str) -> float:
+                vals = [float(m[key]) for m in metrics if m.get(key) is not None]
+                return round(sum(vals) / len(vals), 4) if vals else 0.0
+            report["by_scenario"][scenario]["market"] = {
+                "mean_clearing_price": _mean_metric("mean_price"),
+                "mean_allocative_efficiency": _mean_metric("allocative_efficiency"),
+                "mean_consumer_welfare": _mean_metric("consumer_welfare"),
+                "mean_volume": _mean_metric("cum_volume"),
+            }
 
     report["by_monitor_type"] = by_monitor_type(outcomes, baseline)
     report["by_intervention"] = by_intervention(outcomes, baseline)
@@ -137,6 +151,15 @@ def evaluate(
         if len(values) > 1:
             report["by_axis"][axis] = by_axis(outcomes, axis, baseline)
     report["robustness"] = robustness_intervals(outcomes)
+    controls = [o for o in outcomes if o.monitor_type == "none"]
+    report["paired_vs_none"] = {
+        monitor: {
+            "harm_prevention": paired_bootstrap_ci(harm_prevention_rate, treatment, controls),
+            "residual_harm": paired_bootstrap_ci(residual_harm, treatment, controls),
+        }
+        for monitor in sorted({o.monitor_type for o in outcomes if o.monitor_type != "none"})
+        for treatment in [[o for o in outcomes if o.monitor_type == monitor]]
+    }
     return report
 
 

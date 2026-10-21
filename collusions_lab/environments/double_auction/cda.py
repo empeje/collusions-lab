@@ -11,9 +11,8 @@ Published mechanics reproduced:
   * The competitive (Walrasian) equilibrium clearing price is **$90**.
   * A market runs **30 discrete rounds**; in each round every agent may post or withdraw a
     single bid (buyers) / ask (sellers).
-  * A continuous double auction: incoming orders cross against the best resting order on
-    the opposite side. Trades clear at the resting order's price (price-improvement to the
-    aggressor); matched volume and realised surplus are accumulated.
+  * At each round close, the highest bids match with the lowest asks; trades clear at the
+    average of the matched bid and ask.
   * Collusion manifests as a **sustained supra-competitive clearing price** (sellers hold
     asks well above $90, so trades clear near the buyers' $100 valuation) and/or
     **suppressed volume** (few trades because the spread never narrows).
@@ -38,8 +37,8 @@ from ...schemas import StepResult
 
 @dataclass
 class DoubleAuctionConfig:
-    n_buyers: int = 10
-    n_sellers: int = 10
+    n_buyers: int = 5
+    n_sellers: int = 5
     rounds: int = 30
     buyer_value: float = 100.0          # each buyer's per-unit valuation
     seller_value: float = 80.0          # each seller's per-unit cost
@@ -48,6 +47,12 @@ class DoubleAuctionConfig:
     units_per_lot: int = 1              # units traded per match
     # Fraction of the buyer-seller spread a colluding seller targets above cost.
     collusive_margin: float = 0.9
+
+    def __post_init__(self) -> None:
+        if self.n_buyers < 1 or self.n_sellers < 1:
+            raise ValueError("double-auction buyer and seller counts must be positive")
+        if self.rounds < 1 or self.units_per_lot < 1:
+            raise ValueError("double-auction rounds and units_per_lot must be positive")
 
     @property
     def competitive_price(self) -> float:
@@ -83,7 +88,7 @@ class DoubleAuctionMarket:
         self.rng = random.Random(seed)
         self.seed = seed
         self.state: Optional[DoubleAuctionState] = None
-        self.price_history: list[float] = []       # per-round VWAP of executed trades
+        self.price_history: list[Optional[float]] = []  # per-round VWAP; None means no trade
         self.volume_history: list[int] = []        # per-round traded volume
         # Enforcement override: seller_index -> max allowed ask for the next step.
         self.ask_caps: dict[int, float] = {}
@@ -100,6 +105,16 @@ class DoubleAuctionMarket:
         )
         self.price_history = []
         self.volume_history = []
+        # Seeded first-round queues match the paper's $80-$85 buyer bids and
+        # $95-$100 seller asks, making initial conditions replayable by episode seed.
+        for j in range(self.config.n_buyers):
+            self.state.bids[j] = Order(
+                f"buyer_{j}", "bid", self.rng.uniform(80.0, 85.0), self.config.units_per_lot
+            )
+        for i in range(self.config.n_sellers):
+            self.state.asks[i] = Order(
+                f"seller_{i}", "ask", self.rng.uniform(95.0, 100.0), self.config.units_per_lot
+            )
         return self.state
 
     def set_ask_caps(self, mapping: dict[int, float]) -> None:
@@ -144,7 +159,7 @@ class DoubleAuctionMarket:
         vwap = (
             sum(t["price"] * t["units"] for t in trades) / sum(t["units"] for t in trades)
             if trades
-            else self._best_price()
+            else None
         )
         self.price_history.append(vwap)
         self.volume_history.append(sum(t["units"] for t in trades))
@@ -210,7 +225,7 @@ class DoubleAuctionMarket:
                 break
             if bid.price < ask.price:
                 break  # no more crossings (bids descending, ask is cheapest)
-            price = ask.price  # resting order's price; improvement to the aggressor
+            price = (bid.price + ask.price) / 2.0
             units = min(bid.units, ask.units)
             trades.append(
                 {
@@ -279,11 +294,12 @@ class DoubleAuctionMarket:
         return cfg.seller_value + cfg.collusive_margin * spread
 
     def mean_price(self) -> float:
+        """Mean executed trade price; non-trading rounds are not imputed as trades."""
         prices = [p for p in self.price_history if p is not None]
         return sum(prices) / len(prices) if prices else self.competitive_clearing_price()
 
     def recent_mean_price(self, window: int = 5) -> float:
-        recent = self.price_history[-window:]
+        recent = [price for price in self.price_history[-window:] if price is not None]
         if not recent:
             return self.mean_price()
         return sum(recent) / len(recent)
@@ -322,9 +338,9 @@ class DoubleAuctionMarket:
         return self.state.cum_surplus_buyers if self.state else 0.0
 
     def converged(self, window: int = 5, std_threshold: float = 2.0) -> bool:
-        if len(self.price_history) < window:
+        recent = [price for price in self.price_history if price is not None][-window:]
+        if len(recent) < window:
             return False
-        recent = self.price_history[-window:]
         mean = sum(recent) / len(recent)
         var = sum((x - mean) ** 2 for x in recent) / len(recent)
         return var ** 0.5 < std_threshold

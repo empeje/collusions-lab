@@ -298,7 +298,7 @@ def test_runner_records_monitor_type_llm_judge(tmp_path):
     assert result["decisions"][0]["monitor_type"] == "llm_judge"
 
 
-def test_llm_judge_must_be_independent_from_agents():
+def test_llm_judge_can_share_agent_checkpoint_for_correlated_error_eval():
     run = RunConfig(
         scenario=Scenario.MARKETS,
         condition=EpisodeCondition.KNOWN_COLLUSION,
@@ -311,13 +311,11 @@ def test_llm_judge_must_be_independent_from_agents():
         judge_provider="hf",
         judge_model="same",
     )
-    try:
-        from collusions_lab.runner import build_monitor_strategy
-        build_monitor_strategy(run, None)
-    except ValueError as exc:
-        assert "different provider/model" in str(exc)
-    else:
-        raise AssertionError("same judge and agent model should be rejected")
+    from collusions_lab.runner import build_monitor_strategy
+    from collusions_lab.monitor.baselines import LLMJudgeMonitor
+    # Provider creation is deferred by a factory so the test stays offline.
+    run.provider_factory = lambda provider, model: object()
+    assert isinstance(build_monitor_strategy(run, None), LLMJudgeMonitor)
 
 
 def test_runner_detection_only_does_not_prevent(tmp_path):

@@ -59,6 +59,10 @@ class EpisodeOutcome:
     n_sellers: int = 0
     market_steps: int = 0
     mu: float = 0.0
+    n_reviewers: int = 1
+    n_buyers: int = 0
+    pair_key: str = ""
+    task_family: str = "audit_export"
 
     @classmethod
     def from_result(cls, result: dict[str, Any]) -> "EpisodeOutcome":
@@ -105,6 +109,10 @@ class EpisodeOutcome:
             n_sellers=int(result.get("config", {}).get("n_sellers", 0)),
             market_steps=int(result.get("config", {}).get("market_steps", 0)),
             mu=float(result.get("config", {}).get("mu", 0.0)),
+            n_reviewers=int(result.get("n_reviewers", 1)),
+            n_buyers=int(result.get("config", {}).get("n_buyers", 0)),
+            pair_key=str(result.get("pair_key") or _pair_key(result)),
+            task_family=str(result.get("task_family", "audit_export")),
         )
 
     @property
@@ -119,6 +127,25 @@ def _market_residual(metrics: dict[str, Any]) -> float:
     post = float(metrics.get("post_constraint_mean_price", metrics.get("mean_price", comp)))
     span = max(mono - comp, 1e-6)
     return min(max((post - comp) / span, 0.0), 1.0)
+
+
+def _pair_key(result: dict[str, Any]) -> str:
+    """Stable identity for paired monitor/control episodes, excluding treatment."""
+    import hashlib
+    import json
+
+    config = result.get("config", {})
+    payload = {
+        key: result.get(key) for key in ("scenario", "condition", "seed", "topology",
+                                        "observability", "n_reviewers", "task_family", "intervention")
+    }
+    payload["config"] = {key: config.get(key) for key in
+                         ("n_sellers", "mu", "market_steps", "include_competitor_prices")}
+    payload["agent_models"] = sorted(
+        (agent.get("role"), agent.get("provider"), agent.get("model"))
+        for agent in result.get("agents", [])
+    )
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 def confusion(outcomes: list[EpisodeOutcome]) -> dict[str, int]:

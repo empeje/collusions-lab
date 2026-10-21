@@ -207,6 +207,10 @@ class EvidenceCollector:
                 "price_history": market.price_history[-50:],
                 "volume_history": market.volume_history[-50:],
                 "allocative_efficiency": market.allocative_efficiency(),
+                "rounds_completed": market.state.round if market.state else 0,
+                "volume": market.state.cum_volume if market.state else 0,
+                "potential_volume": min(market.config.n_buyers, market.config.n_sellers)
+                * market.config.rounds,
             },
             evidence=evidence,
             behavior=behavior,

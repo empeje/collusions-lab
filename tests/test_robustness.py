@@ -10,6 +10,8 @@ All offline and scripted. They exercise:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from collusions_lab.environments.software_engineering.swe_env import SWEConfig, SWEEnvironment
 from collusions_lab.evaluation import by_axis, bootstrap_ci
 from collusions_lab.evaluation.detection_metrics import EpisodeOutcome, detection_recall
@@ -284,6 +286,20 @@ def test_default_variant_adds_no_suffix(tmp_path):
     assert "_obs" not in result["episode_id"]
 
 
+def test_variant_suffix_sanitizes_model_ids_for_windows_paths():
+    from collusions_lab.runner import RunConfig, _run_variant_suffix
+    from collusions_lab.schemas import EpisodeCondition, Scenario
+
+    run = RunConfig(
+        scenario=Scenario.SOFTWARE_ENGINEERING,
+        condition=EpisodeCondition.SHARED_CONTEXT,
+        agents=[], extra={"axes": {"agent_model": "gemma2:2b"}},
+    )
+    suffix = _run_variant_suffix(run)
+    assert ":" not in suffix
+    assert "gemma2-2b" in suffix
+
+
 # ---------------------------------------------------------------------------
 # Evaluation: robustness intervals + structural axes from results
 # ---------------------------------------------------------------------------
@@ -320,3 +336,96 @@ def test_structure_axes_reach_outcome():
     assert outcome.n_sellers == 7
     assert outcome.mu == 0.5
     assert outcome.market_steps == 200
+
+
+def test_swe_reviewer_count_sweep_builds_distinct_reviewers():
+    from collusions_lab.experiments import build_run_configs, load_experiment
+
+    spec = load_experiment(
+        Path(__file__).resolve().parents[1]
+        / "experiments"
+        / "milestone5_swe_structure.yaml"
+    )
+    runs = build_run_configs(spec)
+    assert len(runs) == 3 * 4 * 3 * 2 * 2
+    for reviewers in (1, 2, 3):
+        matching = [run for run in runs if run.n_reviewers == reviewers]
+        assert matching
+        assert all(
+            len([agent for agent in run.agents if agent.role == AgentRole.REVIEWER])
+            == reviewers
+            for run in matching
+        )
+
+
+def test_swe_task_family_sweep_builds_held_out_environment(tmp_path):
+    from collusions_lab.environments.software_engineering import SWEConfig, SWEEnvironment
+    from collusions_lab.experiments import build_run_configs, load_experiment
+
+    config_path = Path(__file__).resolve().parents[1] / "experiments" / "milestone5_swe_structure.yaml"
+    runs = build_run_configs(load_experiment(config_path))
+    assert {run.task_family for run in runs} == {"audit_export", "admin_reset"}
+    env = SWEEnvironment(SWEConfig(task_family="admin_reset"))
+    env.setup()
+    assert "reset_password" in env.read_file("TASK.md")
+    assert env.run_behavior_tests().passed
+    env.teardown()
+
+
+def test_model_family_sweep_is_a_real_agent_and_judge_axis():
+    from collusions_lab.experiments import build_run_configs, load_experiment
+
+    path = Path(__file__).resolve().parents[1] / "experiments" / "milestone5_models.yaml"
+    runs = build_run_configs(load_experiment(path))
+    expected_models = {"gemma2:2b", "cow/gemma2_tools:2b", "qwen2.5:3b", "llama3.1:8b"}
+    assert {run.agents[0].model for run in runs} == expected_models
+    assert {run.judge_model for run in runs} == expected_models
+    assert {run.task_family for run in runs} == {"audit_export", "admin_reset"}
+
+
+def test_double_auction_rosters_follow_buyer_and_seller_axes():
+    from collusions_lab.experiments import build_run_configs, load_experiment
+
+    path = Path(__file__).resolve().parents[1] / "experiments" / "milestone6a_double_auction.yaml"
+    runs = build_run_configs(load_experiment(path))
+    assert {(run.n_sellers, run.extra["n_buyers"]) for run in runs} == {
+        (3, 3), (3, 5), (5, 3), (5, 5),
+    }
+    for run in runs:
+        assert sum(agent.role == AgentRole.SELLER for agent in run.agents) == run.n_sellers
+        assert sum(agent.role == AgentRole.BUYER for agent in run.agents) == run.extra["n_buyers"]
+
+
+def test_swe_run_executes_each_reviewer(tmp_path):
+    from collusions_lab.runner import RunConfig, run_episode
+    from collusions_lab.schemas import EpisodeCondition, MonitorType, Scenario
+
+    reviewers = [
+        AgentConfig(
+            agent_id=f"reviewer_{i}", role=AgentRole.REVIEWER,
+            model="m", provider="scripted", system_prompt="",
+        )
+        for i in range(1, 4)
+    ]
+    roles = [
+        AgentConfig(agent_id=role.value, role=role, model="m", provider="scripted", system_prompt="")
+        for role in [AgentRole.PLANNER, AgentRole.IMPLEMENTER_A, AgentRole.IMPLEMENTER_B,
+                     AgentRole.TESTER, AgentRole.EXECUTOR]
+    ]
+    result = run_episode(
+        RunConfig(
+            scenario=Scenario.SOFTWARE_ENGINEERING,
+            condition=EpisodeCondition.SHARED_CONTEXT,
+            agents=roles + reviewers,
+            monitor_type=MonitorType.NONE,
+            n_reviewers=3,
+        ),
+        tmp_path,
+    )
+    events = [
+        __import__("json").loads(line)
+        for line in (tmp_path / result["episode_id"] / "authoritative.jsonl")
+        .read_text(encoding="utf-8").splitlines()
+    ]
+    reviewed_by = {event.get("agent_id") for event in events if event.get("type") == "decision"}
+    assert {"reviewer_1", "reviewer_2", "reviewer_3"}.issubset(reviewed_by)

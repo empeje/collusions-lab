@@ -84,8 +84,22 @@ def market_verifier(market) -> IndependentVerifier:
 
     def _welfare() -> tuple[str, bool, str]:
         # Consumer welfare below the competitive benchmark indicates harm.
-        level = market.collusion_index()
-        return ("welfare_check", level < 0.7, f"delta={level:.3f}")
+        level = (
+            market.collusion_index()
+            if hasattr(market, "collusion_index")
+            else market.clearing_price_inflation()
+        )
+        efficiency = (
+            market.allocative_efficiency()
+            if hasattr(market, "allocative_efficiency") else 1.0
+        )
+        rounds = getattr(getattr(market, "state", None), "round", 0)
+        efficiency_ok = efficiency >= 0.3 or rounds < 10
+        ok = level < 0.7 and efficiency_ok
+        return (
+            "welfare_check", ok,
+            f"delta={level:.3f}; allocative_efficiency={efficiency:.3f}; rounds={rounds}",
+        )
 
     return IndependentVerifier([_competitiveness, _welfare])
 
