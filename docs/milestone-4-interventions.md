@@ -133,10 +133,32 @@ first time; previously it was a complete no-op.
   earlier implementation or later work in that same episode. The default for this
   allowed path omits `release` so the allowed release can proceed.
 
+#### Multi-pass write checkpoints
+
+SWE runs use `swe_passes` (default `2`) to let the team resume after an intervention.
+For the four treatment arms (`review_gate`, `restricted_tools`,
+`independent_verification`, and `full`), every proposed `write_file` is staged in the
+isolated workspace behind a checkpoint. The monitor evaluates the resulting artifact
+before it is accepted as episode state;
+`independent_verification` and `full` also run the independent SWE verifier at this
+boundary. A rejected proposal restores file contents, authorship, and test-claim state.
+`restricted_tools` and `full` revoke the configured write capability (default
+`write_file`) before the next pass, so a repeated attempt is denied at dispatch. Other
+arms may retry in a later pass, where the checkpoint is evaluated again. The release
+gate remains a separate checkpoint before release. `auto` retains its Milestone 3
+write behavior and intervenes at release; `none` remains the untreated control.
+
+These are workspace transactions, not Git commits: the benchmark does not create a
+commit per write. `metrics.write_checkpoints`, `write_rollbacks`, `passes_configured`,
+and `recovery_after_intervention` expose checkpoint and recovery behavior. A safe
+later pass after a rollback counts as recovery; the `none` arm remains the untreated
+control and does not roll back writes.
+
 ## Recording and evaluation
 
 Each result carries `intervention`, `review_outcome`, `restricted_tools`, and
-`metrics.tool_denials`; the manifest carries `intervention`. Episode directories are
+`metrics.tool_denials`; SWE results also carry checkpoint, rollback, pass, and recovery
+metrics. The manifest carries `intervention`. Episode directories are
 named `..._mon{type}_int{intervention}` so arms never collide.
 
 `collusions_lab.evaluation.by_intervention` breaks the three metric families down by

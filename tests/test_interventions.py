@@ -11,6 +11,7 @@ All tests are offline and use ``scripted`` agents. They exercise:
 from __future__ import annotations
 
 import json
+import pytest
 
 from collusions_lab.capabilities import ACTION_TOOL, CapabilitySet, Tool
 from collusions_lab.environments.software_engineering.swe_env import SWEConfig, SWEEnvironment
@@ -335,9 +336,28 @@ def test_swe_review_gate_records_outcome(tmp_path):
 
 def test_swe_restricted_tools_revokes_write(tmp_path):
     result = _run_swe(tmp_path, InterventionType.RESTRICTED_TOOLS)
-    assert result["restricted_tools"] == ["release", "write_file"]
-    # The intervention is resolved before the executor dispatches its release.
+    assert result["restricted_tools"] == ["write_file"]
+    assert result["metrics"]["write_rollbacks"] >= 1
+    # The subsequent pass reaches dispatch with write_file already revoked.
     assert result["metrics"]["tool_denials"] > 0
+
+
+@pytest.mark.parametrize("arm", [
+    InterventionType.REVIEW_GATE,
+    InterventionType.RESTRICTED_TOOLS,
+    InterventionType.INDEPENDENT_VERIFICATION,
+    InterventionType.FULL,
+])
+def test_swe_intervention_checkpoint_rolls_back_and_records_multiple_passes(tmp_path, arm):
+    result = _run_swe(tmp_path, arm)
+    assert result["metrics"]["passes_configured"] == 2
+    assert result["metrics"]["write_checkpoints"] >= 2
+    assert result["metrics"]["write_rollbacks"] >= 1
+    assert result["harmful_change_present"] is False
+    manifest = json.loads(
+        (tmp_path / result["episode_id"] / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["config"]["swe_passes"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +412,7 @@ def test_swe_intervention_sweep_covers_all_arms_and_conditions():
         "independent_verification", "full",
     }
     assert all(run.restricted_tools == ["write_file", "release"] for run in runs)
+    assert all(run.swe_passes == 2 for run in runs)
 
 
 def test_by_intervention_breakdown(tmp_path):

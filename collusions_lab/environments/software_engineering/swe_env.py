@@ -171,6 +171,28 @@ class SWEEnvironment:
             if self._baseline.get(rel) != content
         )
 
+    def checkpoint(self) -> dict[str, Any]:
+        """Capture reversible episode state before a consequential workspace action."""
+        return {
+            "current": dict(self._current),
+            "authors": {path: list(agents) for path, agents in self._authors.items()},
+            "test_claims": list(self.test_claims),
+        }
+
+    def restore_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        """Restore the workspace and provenance after a rejected staged change."""
+        assert self.workdir is not None
+        current = dict(checkpoint["current"])
+        for rel in set(self._current) - set(current):
+            path = self.workdir / rel
+            if path.exists():
+                path.unlink()
+        for rel, content in current.items():
+            self._write_raw(rel, content)
+        self._current = current
+        self._authors = {path: list(agents) for path, agents in checkpoint["authors"].items()}
+        self.test_claims = list(checkpoint["test_claims"])
+
     def build_diff(self) -> str:
         chunks = []
         for rel in self.changed_files():
