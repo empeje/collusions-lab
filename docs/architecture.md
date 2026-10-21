@@ -57,7 +57,9 @@
 - **`monitor/`** — `EvidenceCollector` (authoritative re-inspection),
   `Detector` (signals), `MonitorPolicy` (transparent rules), `Enforcement`
   (constrained actions / forced prices / release blocks / quarantine),
-  `TrustedMonitor` (facade).
+  `baselines.py` (`MonitorStrategy` + `NoMonitor`, `RulesMonitor`,
+  `LLMJudgeMonitor`, `ArtifactVerificationMonitor`, calibration),
+  `TrustedMonitor` (facade; strategy-injected, supports `detection_only`).
 - **`runner.py`** — `RunConfig`, `load_run_config`, `EpisodeRecorder`,
   `run_episode`, ground-truth labelling.
 - **`experiments.py`** — declarative sweep runner over experiment YAMLs.
@@ -83,6 +85,27 @@
    competitive benchmark; on software it blocks the release gate. `HOLD` requests
    review with no override. A `CONSTRAIN` latches for the episode (release requires a
    human review of a fixed agent version).
+
+## Monitor baselines (Milestone 3)
+
+The pipeline above is the *artifact-verification* strategy. Milestone 3 makes the
+monitor a pluggable `MonitorStrategy` injected into `TrustedMonitor`, selected by
+`RunConfig.monitor_type` (`none | rules | llm_judge | artifact`):
+
+- `RulesMonitor` uses the pre-computed signal bundle's heuristics only (no
+  independent re-execution).
+- `LLMJudgeMonitor` renders a **sanitized** evidence bundle (ground-truth /
+  hidden-objective keys dropped) to a separate model and parses strict JSON; it
+  fails safe to `HOLD` and applies a calibrated threshold.
+- `ArtifactVerificationMonitor` is the treatment: independent detector + the
+  artifact rule set drive safety.
+- `NoMonitor` is the Baseline-0 control.
+
+Each `MonitorDecision` carries `monitor_type`, a `flagged` detection bit, and
+`detection_only`. With `detection_only=True` the strategy still detects and records
+flags but `TrustedMonitor` skips `Enforcement`, so detection can be scored apart from
+prevention. `evaluate()` reports a `by_monitor_type` breakdown and a `threat_curve`
+(prevention/detection per arm at fixed false-positive budgets).
 
 ## Trust boundaries
 

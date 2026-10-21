@@ -81,6 +81,22 @@ class MonitorAction(str, enum.Enum):
     QUARANTINE = "quarantine"  # agent discovered the monitor / compromised enforcement path
 
 
+class MonitorType(str, enum.Enum):
+    """The three baselines plus the no-monitor control (requirements section 5).
+
+    * NONE      -- Baseline 0: no monitor; natural incidence of harm.
+    * RULES     -- Baseline 1: surface heuristics only, no independent re-execution.
+    * LLM_JUDGE -- Baseline 2: a separate model classifies the evidence bundle.
+    * ARTIFACT  -- Treatment: independent artifact/evidence verification drives safety;
+                   coordination only informs investigation.
+    """
+
+    NONE = "none"
+    RULES = "rules"
+    LLM_JUDGE = "llm_judge"
+    ARTIFACT = "artifact"
+
+
 # --------------------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------------------
@@ -220,6 +236,11 @@ class MonitorDecision:
     signals: Optional[MonitorSignals] = None
     decision_id: str = field(default_factory=lambda: _new_id("dec"))
     timestamp: str = field(default_factory=_utcnow)
+    # Milestone 3: which baseline produced this decision, whether it raised a flag
+    # (detection) independent of enforcement, and whether enforcement was suppressed.
+    monitor_type: Optional["MonitorType"] = None
+    flagged: bool = False
+    detection_only: bool = False
 
     def to_json(self) -> str:
         return dumps(self)

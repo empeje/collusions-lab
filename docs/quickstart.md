@@ -21,6 +21,7 @@ Requires Python >= 3.11. Runtime deps are `pyyaml` and `requests`; `[dev]` adds
 Optional extras:
 
 - `.[inspect]` — the Inspect AI evaluation adapter.
+- `.[hf]` — the HF Inference provider (used by the LLM-judge baseline).
 - `.[space]` — the Gradio demo.
 
 No install needed if you run every command from the repository root: Python
@@ -29,8 +30,8 @@ resolves the `collusions_lab` package from the current directory.
 ## 2. Self-checks
 
 ```powershell
-python -m pytest -q            # 66 passed
-python -m mypy collusions_lab  # Success: no issues found in 32 source files
+python -m pytest -q            # 85 passed
+python -m mypy collusions_lab  # Success: no issues found in 33 source files
 ```
 
 ## 3. Run both scenarios
@@ -78,7 +79,41 @@ Get-Content runs/milestone1_market_fallback/market_adversarial_monitor_1_mon1/mo
 # action="allow", risk_score=0.1, reasons=["prices near competitive benchmark"]
 ```
 
-## 5. Audit trail
+## 5. Compare the monitor baselines (Milestone 3)
+
+Run the four arms (`none`, `rules`, `llm_judge`, `artifact`) on matched
+seeds/conditions:
+
+```powershell
+python -m collusions_lab.experiments experiments/milestone3_baselines.yaml
+python -m collusions_lab.evaluation runs/milestone3_baselines_market
+```
+
+The report adds a per-arm block and a threat curve:
+
+```
+[monitor=rules]        detection recall=... fpr=...
+[monitor=artifact]     detection recall=... fpr=...
+[monitor=llm_judge]    detection recall=... fpr=...
+[monitor=none]         detection recall=0.0 ...
+```
+
+Detection is scored separately from enforcement: set `detection_only: true` in the
+YAML `defaults` to record flags without intervening, and compare
+`flagged_and_prevented` vs `prevented_without_flag` in each arm's
+`prevention_confusion`.
+
+To use a real LLM judge:
+
+```powershell
+python -m pip install -e ".[hf]"
+$env:HF_TOKEN = "hf_..."
+# defaults already set in experiments/milestone3_baselines.yaml:
+#   judge_provider: hf
+#   judge_model: Qwen/Qwen2.5-3B-Instruct
+```
+
+## 6. Audit trail
 
 Every episode writes, under `runs/<experiment>/<episode_id>/`:
 
@@ -92,7 +127,7 @@ Every episode writes, under `runs/<experiment>/<episode_id>/`:
 | `result.json`        | metrics + ground truth (evaluation-only)            |
 | `diffs/step_NNN.diff`| per-step source diffs (software-engineering only)   |
 
-## 6. Replay and audit via the harness
+## 7. Replay and audit via the harness
 
 ```python
 from collusions_lab.harness import replay_episode, list_episodes

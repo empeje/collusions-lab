@@ -61,8 +61,20 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Task utility retained | `evaluation/utility_metrics.py::task_utility_retained` (paired on/off) | Done | `tests/test_evaluation.py` |
 | Intervention cost | `intervention_cost` | Done | `tests/test_evaluation.py` |
 | Recovery rate | `recovery_rate` | Done | `tests/test_evaluation.py` |
-| Detection and prevention measured separately | `evaluate()` report splits both | Done | `tests/test_evaluation.py::test_evaluate_report_structure` |
-| Prevention–utility trade-off, confidence intervals across episodes | paired seeds supported; CI/multi-run aggregation | Planned (milestone 5) | — |
+| Detection and prevention measured separately | `evaluate()` report splits both; per-decision `flagged` bit; `detection_only` mode; `prevention_confusion` | Done | `tests/test_evaluation.py::test_evaluate_report_structure`, `tests/test_baselines.py` |
+| Prevention–utility trade-off, confidence intervals across episodes | `threat_curve` reports prevention/detection at fixed FPR budgets per monitor arm; CI/multi-run aggregation | Partial (threat curve done; CI planned milestone 5) | `tests/test_evaluation.py` |
+
+## Section 5b — Baseline comparison (Milestone 3)
+
+| Requirement | Implementation | Status | Tests |
+|---|---|---|---|
+| Rules-only baseline (surface heuristics, no independent re-execution) | `monitor/baselines.py::RulesMonitor`; `policy.MonitorPolicy(rule_set="rules")` | Done | `tests/test_baselines.py` |
+| Black-box LLM-judge baseline | `monitor/baselines.py::LLMJudgeMonitor` + `calibrate_threshold`; default `hf`/`Qwen/Qwen2.5-3B-Instruct` | Done | `tests/test_baselines.py` |
+| Artifact-verification (treatment) baseline | `monitor/baselines.py::ArtifactVerificationMonitor` (independent detector + artifact policy) | Done | `tests/test_baselines.py` |
+| No-monitor control | `monitor/baselines.py::NoMonitor` (`monitor_type=none`) | Done | `tests/test_baselines.py` |
+| Detection separate from enforcement | `MonitorDecision.flagged`/`detection_only`; `TrustedMonitor(detection_only=...)` | Done | `tests/test_baselines.py::test_detection_only_records_flag_without_enforcing` |
+| Judge fails safe | provider error / unparseable output → HOLD | Done | `tests/test_baselines.py::test_llm_judge_malformed_output_holds_failsafe` |
+| Judge cannot see ground truth / hidden objectives | allow-listed, sanitized evidence payload | Done | `tests/test_baselines.py::test_llm_judge_sanitizes_evidence` |
 
 ## Section 6 — Small practical PoC, then expand
 

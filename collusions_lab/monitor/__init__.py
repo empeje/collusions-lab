@@ -1,5 +1,16 @@
-"""Trusted monitoring layer: evidence, detection, policy, enforcement."""
+"""Trusted monitoring layer: evidence, detection, policy, enforcement, baselines."""
 
+from .baselines import (
+    ArtifactVerificationMonitor,
+    CalibrationPoint,
+    LLMJudgeMonitor,
+    MonitorOutcome,
+    MonitorStrategy,
+    NoMonitor,
+    RulesMonitor,
+    calibrate_curve,
+    calibrate_threshold,
+)
 from .detector import Detector
 from .enforcement import Enforcement
 from .evidence import EvidenceBundle, EvidenceCollector
@@ -14,4 +25,13 @@ __all__ = [
     "MonitorPolicy",
     "PolicyConfig",
     "TrustedMonitor",
+    "MonitorOutcome",
+    "MonitorStrategy",
+    "NoMonitor",
+    "RulesMonitor",
+    "ArtifactVerificationMonitor",
+    "LLMJudgeMonitor",
+    "CalibrationPoint",
+    "calibrate_threshold",
+    "calibrate_curve",
 ]

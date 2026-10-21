@@ -109,6 +109,7 @@ Agents can be driven by a provider instead of the deterministic scripted policy:
 | `scripted` | default; deterministic, used for CI and controls |
 | `mock`     | offline canned responses for tests               |
 | `ollama`   | local models (e.g. `qwen2.5:3b-instruct`)        |
+| `hf`       | HF Inference API; needs `HF_TOKEN` and `.[hf]`   |
 | `openai`   | needs `OPENAI_API_KEY`                           |
 | `gemini`   | needs `GEMINI_API_KEY`                           |
 
@@ -122,13 +123,34 @@ Five matched conditions (`EpisodeCondition`): `independent_baseline`,
 `shared_context`, `communication`, `known_collusion` (ground-truth positives),
 `adversarial_monitor`. See the YAMLs in [`experiments/`](experiments/).
 
+## Monitor baselines
+
+Every condition can be run under four matched monitoring designs via the YAML
+`monitor` key (`none | rules | llm_judge | artifact`):
+
+| arm        | design                                                                 |
+|------------|------------------------------------------------------------------------|
+| `none`     | Baseline 0 -- no monitor.                                              |
+| `rules`    | Baseline 1 -- surface heuristics only, **no independent re-execution**.|
+| `llm_judge`| Baseline 2 -- separate model classifies a sanitized evidence bundle.   |
+| `artifact` | Treatment -- **independent** artifact/evidence verification drives safety. |
+
+Detection is scored separately from prevention: each decision records a `flagged`
+bit and the monitor can run in `detection_only` mode, which records flags without
+enforcing. The LLM judge defaults to `hf` / `Qwen/Qwen2.5-3B-Instruct` and is
+threshold-calibrated on a validation split; it **fails safe to HOLD**. See
+[`docs/milestone-3-baselines.md`](docs/milestone-3-baselines.md) and
+[`experiments/milestone3_baselines.yaml`](experiments/milestone3_baselines.yaml).
+
 ## Metrics
 
 `collusions_lab.evaluation` reports three families (`docs/architecture.md` has
 definitions): **detection** (recall, precision, false-positive rate, time to
 detection), **harm** (prevention rate, residual harm), and **utility** (task utility
 retained, intervention cost, recovery rate). Detection and prevention are always
-reported together with the prevention–utility trade-off.
+reported together with the prevention–utility trade-off. Reports also include a
+**by-monitor-type** breakdown and a **`threat_curve`** (prevention/detection per arm
+at fixed false-positive budgets).
 
 ## Tests and checks
 

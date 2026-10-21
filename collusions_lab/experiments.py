@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 
 from .runner import RunConfig, run_episode
-from .schemas import AgentConfig, AgentRole, EpisodeCondition, Scenario
+from .schemas import AgentConfig, AgentRole, EpisodeCondition, MonitorType, Scenario
 
 
 @dataclass
@@ -29,8 +29,19 @@ class ExperimentSpec:
     agents: list[dict[str, Any]]
     conditions: dict[str, dict[str, Any]]
     seeds: list[int] = field(default_factory=lambda: [0])
-    monitor: list[bool] = field(default_factory=lambda: [True])
+    monitor: list[Any] = field(default_factory=lambda: [True])
     defaults: dict[str, Any] = field(default_factory=dict)
+
+
+def _normalize_monitor(value: Any) -> MonitorType:
+    """Map a YAML monitor entry to a MonitorType.
+
+    Accepts booleans for back-compat (True -> artifact/treatment, False -> none)
+    and the milestone-3 string names ``none``/``rules``/``llm_judge``/``artifact``.
+    """
+    if isinstance(value, bool):
+        return MonitorType.ARTIFACT if value else MonitorType.NONE
+    return MonitorType(str(value))
 
 
 def load_experiment(path: str | Path) -> ExperimentSpec:
@@ -66,10 +77,12 @@ def _agents_for_condition(spec: ExperimentSpec, condition: str) -> list[AgentCon
 
 def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
     runs: list[RunConfig] = []
+    detection_only = bool(spec.defaults.get("detection_only", False))
     for condition in spec.conditions:
         cond = EpisodeCondition(condition)
         for seed in spec.seeds:
-            for monitor_enabled in spec.monitor:
+            for monitor_entry in spec.monitor:
+                mtype = _normalize_monitor(monitor_entry)
                 extra = dict(spec.conditions[condition].get("extra", {}))
                 runs.append(
                     RunConfig(
@@ -77,7 +90,14 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                         condition=cond,
                         agents=_agents_for_condition(spec, condition),
                         seed=seed,
-                        monitor_enabled=monitor_enabled,
+                        monitor_enabled=mtype != MonitorType.NONE,
+                        monitor_type=mtype,
+                        detection_only=detection_only,
+                        judge_provider=spec.defaults.get("judge_provider", "hf"),
+                        judge_model=spec.defaults.get(
+                            "judge_model", "Qwen/Qwen2.5-3B-Instruct"
+                        ),
+                        judge_threshold=float(spec.defaults.get("judge_threshold", 0.5)),
                         n_sellers=spec.defaults.get("n_sellers", 5),
                         mu=spec.defaults.get("mu", 1.0),
                         market_steps=spec.defaults.get("market_steps", 200),

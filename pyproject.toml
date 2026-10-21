@@ -22,6 +22,9 @@ dev = [
 inspect = [
     "inspect-ai>=0.3.282",
 ]
+hf = [
+    "huggingface_hub>=0.24",
+]
 space = [
     "gradio>=4.44",
     "huggingface_hub>=0.24",
