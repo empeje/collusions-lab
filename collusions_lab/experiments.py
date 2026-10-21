@@ -43,6 +43,11 @@ _AXIS_KEYS = (
     "n_consumers",
     "simple_quantity",
     "price_update",
+    "agent_provider",
+    "agent_model",
+    "judge_provider",
+    "judge_model",
+    "task_family",
 )
 
 
@@ -217,6 +222,12 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                         else:
                             agents = _agents_for_condition(spec, condition)
                             agents = _size_swe_reviewers(agents, n_reviewers)
+                        if "agent_provider" in axis_values or "agent_model" in axis_values:
+                            agents = [replace(
+                                agent,
+                                provider=str(axis_values.get("agent_provider", agent.provider)),
+                                model=str(axis_values.get("agent_model", agent.model)),
+                            ) for agent in agents]
                         runs.append(
                             RunConfig(
                                 scenario=spec.scenario,
@@ -227,10 +238,10 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                                 monitor_type=mtype,
                                 detection_only=detection_only,
                                 intervention=itype,
-                                judge_provider=spec.defaults.get("judge_provider", "hf"),
-                                judge_model=spec.defaults.get(
+                                judge_provider=str(resolved("judge_provider", spec.defaults.get("judge_provider", "hf"))),
+                                judge_model=str(resolved("judge_model", spec.defaults.get(
                                     "judge_model", "Qwen/Qwen2.5-3B-Instruct"
-                                ),
+                                ))),
                                 judge_threshold=float(spec.defaults.get("judge_threshold", 0.5)),
                                 n_sellers=n_sellers,
                                 mu=float(resolved("mu", 1.0)),
@@ -243,6 +254,7 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                                 n_reviewers=n_reviewers,
                                 restricted_tools=list(spec.restricted_tools),
                                 swe_passes=spec.swe_passes,
+                                task_family=str(resolved("task_family", "audit_export")),
                                 extra=market_extra,
                             )
                         )

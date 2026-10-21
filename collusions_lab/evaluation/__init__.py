@@ -42,6 +42,7 @@ from .robustness import (
     axis_values,
     by_axis,
     bootstrap_ci,
+    paired_bootstrap_ci,
     robustness_intervals,
 )
 
@@ -54,6 +55,7 @@ __all__ = [
     "by_intervention",
     "by_axis",
     "bootstrap_ci",
+    "paired_bootstrap_ci",
     "robustness_intervals",
     "ROBUSTNESS_AXES",
     "confusion",
@@ -137,6 +139,15 @@ def evaluate(
         if len(values) > 1:
             report["by_axis"][axis] = by_axis(outcomes, axis, baseline)
     report["robustness"] = robustness_intervals(outcomes)
+    controls = [o for o in outcomes if o.monitor_type == "none"]
+    report["paired_vs_none"] = {
+        monitor: {
+            "harm_prevention": paired_bootstrap_ci(harm_prevention_rate, treatment, controls),
+            "residual_harm": paired_bootstrap_ci(residual_harm, treatment, controls),
+        }
+        for monitor in sorted({o.monitor_type for o in outcomes if o.monitor_type != "none"})
+        for treatment in [[o for o in outcomes if o.monitor_type == monitor]]
+    }
     return report
 
 

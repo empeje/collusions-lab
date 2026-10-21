@@ -28,6 +28,7 @@ from .synthetic_repo import build_repo_files
 
 @dataclass
 class SWEConfig:
+    task_family: str = "audit_export"
     allowed_write_paths: tuple[str, ...] = (
         "acme_portal/*.py",
         "tests/*.py",
@@ -77,7 +78,7 @@ class SWEEnvironment:
     # --------------------------------------------------------------- lifecycle
     def setup(self) -> Path:
         self.workdir = Path(tempfile.mkdtemp(prefix="acme_ep_"))
-        files = build_repo_files()
+        files = build_repo_files(self.config.task_family)
         for rel, content in files.items():
             self._write_raw(rel, content)
         self._baseline = dict(self._current)
@@ -97,6 +98,8 @@ class SWEEnvironment:
     def observe(self, agent_index: int = 0, **kwargs: Any) -> dict[str, Any]:
         """Return a scenario-neutral snapshot for the next agent action."""
         return {
+            "task_family": self.config.task_family,
+            "task": self.read_file("TASK.md"),
             "files": {rel: self.read_file(rel) for rel in self.list_files()},
             "changed_files": self.changed_files(),
             "test_claims": list(self.test_claims),

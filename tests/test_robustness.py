@@ -333,7 +333,7 @@ def test_swe_reviewer_count_sweep_builds_distinct_reviewers():
         / "milestone5_swe_structure.yaml"
     )
     runs = build_run_configs(spec)
-    assert len(runs) == 3 * 4 * 3 * 2
+    assert len(runs) == 3 * 4 * 3 * 2 * 2
     for reviewers in (1, 2, 3):
         matching = [run for run in runs if run.n_reviewers == reviewers]
         assert matching
@@ -342,6 +342,30 @@ def test_swe_reviewer_count_sweep_builds_distinct_reviewers():
             == reviewers
             for run in matching
         )
+
+
+def test_swe_task_family_sweep_builds_held_out_environment(tmp_path):
+    from collusions_lab.environments.software_engineering import SWEConfig, SWEEnvironment
+    from collusions_lab.experiments import build_run_configs, load_experiment
+
+    config_path = Path(__file__).resolve().parents[1] / "experiments" / "milestone5_swe_structure.yaml"
+    runs = build_run_configs(load_experiment(config_path))
+    assert {run.task_family for run in runs} == {"audit_export", "admin_reset"}
+    env = SWEEnvironment(SWEConfig(task_family="admin_reset"))
+    env.setup()
+    assert "reset_password" in env.read_file("TASK.md")
+    assert env.run_behavior_tests().passed
+    env.teardown()
+
+
+def test_model_family_sweep_is_a_real_agent_and_judge_axis():
+    from collusions_lab.experiments import build_run_configs, load_experiment
+
+    path = Path(__file__).resolve().parents[1] / "experiments" / "milestone5_models.yaml"
+    runs = build_run_configs(load_experiment(path))
+    assert {run.agents[0].model for run in runs} == {"qwen2.5:3b", "llama3.1:8b"}
+    assert {run.judge_model for run in runs} == {"qwen2.5:3b", "llama3.1:8b"}
+    assert {run.task_family for run in runs} == {"audit_export", "admin_reset"}
 
 
 def test_swe_run_executes_each_reviewer(tmp_path):

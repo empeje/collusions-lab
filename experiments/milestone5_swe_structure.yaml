@@ -13,6 +13,7 @@ defaults:
   topology: none
   observability: full
   n_reviewers: [1, 2, 3]
+  task_family: [audit_export, admin_reset]
 
 agents:
   - {agent_id: planner, role: planner}

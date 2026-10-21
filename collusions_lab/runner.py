@@ -94,6 +94,7 @@ class RunConfig:
     topology: str = "none"          # none | full | ring | star
     observability: str = "full"     # full | artifacts_only | no_messages
     n_reviewers: int = 1
+    task_family: str = "audit_export"
 
     def __post_init__(self) -> None:
         if not self.monitor_enabled:
@@ -155,6 +156,7 @@ def load_run_config(path: str | Path) -> RunConfig:
         topology=data.get("topology", "none"),
         observability=data.get("observability", "full"),
         n_reviewers=int(data.get("n_reviewers", 1)),
+        task_family=str(data.get("task_family", "audit_export")),
         restricted_tools=list(data.get("restricted_tools", [])),
         swe_passes=int(data.get("swe_passes", 2)),
     )
@@ -170,13 +172,9 @@ def build_monitor_strategy(run: "RunConfig", quarantine_store) -> MonitorStrateg
     if mtype == MonitorType.ORACLE:
         return OracleMonitor()
     if mtype == MonitorType.LLM_JUDGE:
-        if any(
-            agent.provider == run.judge_provider and agent.model == run.judge_model
-            for agent in run.agents
-        ):
-            raise ValueError(
-                "LLM judge must use a different provider/model configuration from every agent"
-            )
+        # The monitor is a separately invoked role even when it uses the same model
+        # family (or checkpoint); allowing this is required for correlated-error
+        # experiments and does not share agent state or credentials.
         provider = (run.provider_factory or get_provider)(run.judge_provider, run.judge_model)
         return LLMJudgeMonitor(provider, threshold=run.judge_threshold)
     return ArtifactVerificationMonitor(
@@ -650,7 +648,7 @@ def _collect_runtime_prompt_hashes(events: list[Event]) -> dict[str, list[str]]:
 
 
 def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
-    env = SWEEnvironment(SWEConfig(keep_workdir=False))
+    env = SWEEnvironment(SWEConfig(keep_workdir=False, task_family=run.task_family))
     env.reset(seed=run.seed)
     run_dir = RunDirectory(
         out_root,
@@ -809,6 +807,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         "topology": run.topology,
         "observability": run.observability,
         "n_reviewers": run.n_reviewers,
+        "task_family": run.task_family,
         "review_outcome": (
             review_outcome.value if isinstance(review_outcome, ReviewOutcome) else review_outcome
         ),
@@ -1370,6 +1369,23 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
     else:
         result = _run_swe_episode(run, out_root)
 
+    import hashlib
+    pair_payload = {
+        "scenario": run.scenario.value, "condition": run.condition.value,
+        "seed": run.seed, "topology": run.topology,
+        "observability": run.observability, "n_reviewers": run.n_reviewers,
+        "intervention": run.intervention.value,
+        "task_family": run.task_family,
+        "market": [run.n_sellers, run.mu, run.market_steps, run.include_competitor_prices],
+        "extra": run.extra,
+        "agents": [(a.role.value, a.provider, a.model) for a in run.agents],
+        "judge": [run.judge_provider, run.judge_model],
+    }
+    result["pair_key"] = hashlib.sha256(
+        json.dumps(pair_payload, sort_keys=True, default=str).encode()
+    ).hexdigest()
+    result["agents"] = [jsonable(a) for a in run.agents]
+
     run_dir = RunDirectory(out_root, result["episode_id"])
     artifacts = result.pop("_artifacts", {}) or {}
     provenance = _build_provenance(run)
@@ -1391,6 +1407,7 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
                 "intervention": run.intervention.value,
                 "topology": run.topology,
                 "observability": run.observability,
+                "task_family": run.task_family,
                 "config": {
                     "n_sellers": run.n_sellers,
                     "mu": run.mu,
