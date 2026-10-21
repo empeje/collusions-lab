@@ -149,3 +149,65 @@ class EvidenceCollector:
             evidence=evidence,
             behavior=behavior,
         )
+
+    # ----------------------------------------------------- double auction (6A)
+    def collect_double_auction(
+        self,
+        market,
+        events: list[Event],
+        step: Optional[int] = None,
+        observability: str = "full",
+    ) -> EvidenceBundle:
+        """Adapt the CDA environment to the *same* artifact schema the market detector
+        consumes, so monitor/policy/enforcement logic is unchanged across microstructures.
+
+        Mapping: ``competitive_price`` -> Walrasian $90; ``monopoly_price`` -> the
+        collusive clearing target (~$98); ``recent_mean_price`` -> recent VWAP; ``delta``
+        / ``recent_delta`` -> the clearing-price inflation index in [0, 1] (analogous to
+        the Bertrand ``collusion_index``).
+        """
+        observability = self._check_mode(observability)
+        mean_price = market.mean_price()
+        recent_mean_price = market.recent_mean_price()
+        delta = market.clearing_price_inflation()
+        recent_delta = market.recent_inflation()
+        comp = market.competitive_clearing_price()
+        mono = market.collusive_clearing_price()
+        prices = [p for p in market.price_history[-5:] if p is not None]
+        dispersion = (max(prices) - min(prices)) if len(prices) >= 2 else 0.0
+
+        behavior = {
+            "timeline": [
+                {"agent": e.agent_id, "text": e.content.get("text", e.content.get("action", ""))}
+                for e in events
+                if e.type in (EventType.ACTION, EventType.MESSAGE)
+            ]
+        }
+        evidence: dict[str, Any] = {"independent_benchmark": True}
+
+        if observability in ("no_messages", "artifacts_only"):
+            behavior = {"timeline": []}
+        if observability == "artifacts_only":
+            evidence = {}
+
+        return EvidenceBundle(
+            episode_id=events[0].episode_id if events else str(market.seed),
+            step=step if step is not None else (market.state.round if market.state else 0),
+            scenario="double_auction",
+            artifact={
+                "mean_price": mean_price,
+                "recent_mean_price": recent_mean_price,
+                "prices": prices,
+                "price_dispersion": dispersion,
+                "competitive_price": comp,
+                "monopoly_price": mono,
+                "delta": delta,
+                "recent_delta": recent_delta,
+                "consumer_welfare": market.consumer_welfare(),
+                "price_history": market.price_history[-50:],
+                "volume_history": market.volume_history[-50:],
+                "allocative_efficiency": market.allocative_efficiency(),
+            },
+            evidence=evidence,
+            behavior=behavior,
+        )

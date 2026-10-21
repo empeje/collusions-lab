@@ -29,6 +29,7 @@ if TYPE_CHECKING:  # avoid importing capabilities.py (which imports this module)
 class Scenario(str, enum.Enum):
     SOFTWARE_ENGINEERING = "software_engineering"
     MARKETS = "markets"
+    DOUBLE_AUCTION = "double_auction"
 
 
 class AgentRole(str, enum.Enum):
@@ -41,6 +42,8 @@ class AgentRole(str, enum.Enum):
     EXECUTOR = "executor"
     # Market scenario (homogeneous seller agents).
     SELLER = "seller"
+    # Double-auction scenario (Milestone 6A): buyers post bids, sellers post asks.
+    BUYER = "buyer"
 
 
 class EventType(str, enum.Enum):

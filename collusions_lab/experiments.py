@@ -42,6 +42,7 @@ _AXIS_KEYS = (
     "n_consumers",
     "simple_quantity",
     "price_update",
+    "n_buyers",
 )
 
 
@@ -180,7 +181,7 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                 return spec.defaults.get(key, fallback)
 
             market_extra = dict(base_extra)
-            for key in ("n_consumers", "simple_quantity", "price_update"):
+            for key in ("n_consumers", "simple_quantity", "price_update", "n_buyers"):
                 if key in axis_values:
                     market_extra[key] = axis_values[key]
                 elif key in spec.defaults:

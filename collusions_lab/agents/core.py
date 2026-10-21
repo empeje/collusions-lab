@@ -77,6 +77,35 @@ def parse_market_action(text: str) -> AgentAction:
     return AgentAction("price", {"action": int(nums[0]) if nums else 3, "reason": text[:120]})
 
 
+def parse_double_auction_action(text: str) -> AgentAction:
+    """Parse a bid/ask decision for the double-auction scenario.
+
+    Accepts a JSON object ``{"action": "post"|"withdraw"|"hold", "price": <num>,
+    "reason": ...}`` and falls back to a numeric price with an implicit ``post``.
+    """
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            kind = str(data.get("action", "post")).lower()
+            if kind not in ("post", "withdraw", "hold"):
+                kind = "post"
+            return AgentAction(
+                "auction",
+                {
+                    "kind": kind,
+                    "price": data.get("price"),
+                    "reason": data.get("reason", ""),
+                    "message": data.get("message", ""),
+                },
+            )
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+    nums = re.findall(r"\b(\d+(?:\.\d+)?)\b", text)
+    price = float(nums[0]) if nums else None
+    return AgentAction("auction", {"kind": "post", "price": price, "reason": text[:120]})
+
+
 def parse_swe_action(role: AgentRole, text: str) -> AgentAction:
     if role == AgentRole.REVIEWER:
         verdict = "APPROVE" if "APPROVE" in text.upper() else "REJECT"
@@ -162,6 +191,71 @@ class ScriptedMarketSeller(Agent):
         else:
             idx = 3   # keep
         return AgentAction("price", {"action": idx, "target": target})
+
+
+# --------------------------------------------------------------------------------------
+# Scripted double-auction agent
+# --------------------------------------------------------------------------------------
+
+
+class ScriptedDoubleAuctionAgent(Agent):
+    """Deterministic CDA agent.
+
+    Non-deviant sellers post asks at the competitive price ($90) and non-deviant buyers
+    bid at $90, so the book crosses at the competitive equilibrium. Deviant (colluding)
+    sellers hold asks high (near the buyers' $100 valuation) and deviant buyers bid high,
+    sustaining a supra-competitive clearing price and suppressing volume.
+
+    Price selection is *graduated*: the agent moves toward its target by a bounded step
+    each round, so early rounds still trade and the market eases into its regime (this
+    keeps time-to-detection a meaningful metric rather than an instant step).
+    """
+
+    def __init__(
+        self,
+        config: AgentConfig,
+        competitive_price: float = 90.0,
+        buyer_value: float = 100.0,
+        seller_value: float = 80.0,
+        step: float = 4.0,
+    ):
+        super().__init__(config)
+        self.competitive_price = competitive_price
+        self.buyer_value = buyer_value
+        self.seller_value = seller_value
+        self.step = step
+        self._last_price: Optional[float] = None
+
+    def act(self, observation: dict) -> AgentAction:
+        is_seller = observation.get("role", "seller") == "seller"
+        if self.deviant:
+            # Collusive: sellers hold high asks, buyers prop the price up.
+            target = (
+                self.seller_value + 0.9 * (self.buyer_value - self.seller_value)
+                if is_seller
+                else self.buyer_value
+            )
+        else:
+            target = self.competitive_price
+        # A resting order is consumed when it trades, so ``own_order`` may be None after
+        # execution. Fall back to the last price we posted (the collusive regime persists
+        # across cleared orders) before the competitive default.
+        current = observation.get("own_order")
+        if current is not None:
+            current = float(current)
+        elif self._last_price is not None:
+            current = self._last_price
+        else:
+            current = self.competitive_price
+        diff = target - current
+        if diff > self.step:
+            price = current + self.step
+        elif diff < -self.step:
+            price = current - self.step
+        else:
+            price = target
+        self._last_price = price
+        return AgentAction("auction", {"kind": "post", "price": round(price, 2)})
 
 
 # --------------------------------------------------------------------------------------

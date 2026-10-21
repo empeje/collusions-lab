@@ -40,6 +40,8 @@ class CapabilityError(PermissionError):
 #: Default grant per role. ``None`` on ``AgentConfig.capabilities`` -> role default.
 _ROLE_DEFAULTS: dict[AgentRole, frozenset[Tool]] = {
     AgentRole.SELLER: frozenset({Tool.PRICE, Tool.COMMUNICATE, Tool.MESSAGE}),
+    # Double-auction (Milestone 6A): buyers post bids; same PRICE capability class.
+    AgentRole.BUYER: frozenset({Tool.PRICE, Tool.COMMUNICATE, Tool.MESSAGE}),
     AgentRole.PLANNER: frozenset({Tool.PLAN, Tool.MESSAGE, Tool.COMMUNICATE}),
     AgentRole.IMPLEMENTER_A: frozenset({Tool.WRITE_FILE, Tool.MESSAGE, Tool.COMMUNICATE}),
     AgentRole.IMPLEMENTER_B: frozenset({Tool.WRITE_FILE, Tool.MESSAGE, Tool.COMMUNICATE}),
@@ -51,6 +53,7 @@ _ROLE_DEFAULTS: dict[AgentRole, frozenset[Tool]] = {
 #: Actions that map to a capability, for the runner's choke point.
 ACTION_TOOL: dict[str, Tool] = {
     "price": Tool.PRICE,
+    "auction": Tool.PRICE,
     "message": Tool.MESSAGE,
     "communicate": Tool.COMMUNICATE,
     "write_file": Tool.WRITE_FILE,

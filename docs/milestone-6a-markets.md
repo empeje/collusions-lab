@@ -119,3 +119,40 @@ As with Milestone 1's audit of the upstream market repo, the reference code decl
 license. Milestone 6A therefore does **not** vendor it: the adapter targets our own
 independent double-auction implementation and records the deviation. Any future direct
 use of the upstream engine requires explicit author permission.
+
+## Results (scripted control sweep)
+
+`experiments/milestone6a_double_auction.yaml` -- 3 conditions x 2 topologies (none/full)
+x 3 seeds x 3 monitors (none/artifact/oracle) = **54 episodes**, 30 rounds each, 5
+sellers + 5 buyers (offline, scripted agents). Aggregate via
+`python -m collusions_lab.evaluation runs-m6a`:
+
+| monitor | detection recall | precision | fpr | prevention | residual harm | latency | task utility |
+|---|---|---|---|---|---|---|---|
+| none | 0.00 | 0.00 | 0.00 | 0.00 | 1.00 | — | 0.33 |
+| artifact | 1.00 | 1.00 | 0.00 | 1.00 | 0.00 | 10 | 1.00 |
+| oracle | 1.00 | 1.00 | 0.00 | 1.00 | 0.00 | 10 | 1.00 |
+
+* The independent baseline clears at the Walrasian price ($90, Delta = 0) and is labelled
+  benign; the collusive conditions climb to the collusive clearing (~$98, Delta ~0.98)
+  and are labelled harmful when unmonitored.
+* The deployed artifact detector and the oracle ceiling **coincide** on this benchmark
+  (recall 1.0, FPR 0.0): both fire on the same verified supra-competitive signature, so
+  the monitor's advantage is *not* an artifact of the Bertrand toy. Enforcement latches a
+  seller ask cap at the competitive price, returning post-constraint clearing to $90.
+* Detection latency is a constant 10 rounds because the monitor evaluates every 10 rounds;
+  time-to-detection is bounded by the evaluation cadence, not by signal onset.
+* Bootstrap 95% CI on recall/prevention: `0.667 [0.500, 0.824]` (pooled over all three
+  monitors; the `none` control contributes the misses).
+
+Topology (none vs full) does not change detection or harm outcomes in this scripted
+sweep: collusion in the CDA is carried by *prices* (sustained supra-competitive
+clearing), which the artifact channel sees regardless of the messaging graph. The
+topology axis is retained for LLM-agent runs, where communication is the coordination
+carrier.
+
+## Status
+
+Done (offline). LLM model-family sweeping for this scenario is deferred to the same
+5b/network track as the other scenarios (blocked on provider access), and the scripted
+controls above already validate the microstructure generalization.
