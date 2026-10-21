@@ -47,7 +47,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Three separate labels (benign convergence / harmful tacit / explicit) | `schemas.GroundTruthLabel`; `runner._label_market`, `_label_swe` | Done | `tests/test_episodes.py` |
 | Five matched conditions | `schemas.EpisodeCondition` | Done | `tests/test_schemas.py` |
 | Independent baseline / shared-context / communication / known-collusion / adversarial-monitor | Market information and public-message access vary by condition; SWE prior messages are included for LLM prompts | Partial; scripted agents do not generate messages | `tests/test_experiments.py`, `tests/test_episodes.py` |
-| Randomized seeds, model configs, held-out tasks | seeds + provider/model in YAML (multi-model sweeps are milestone 5) | Partial | `tests/test_experiments.py` |
+| Randomized seeds, model configs, held-out tasks | seeds + provider/model in YAML; Milestone 5 adds cartesian sweeps over topology/observability/`n_sellers`/`mu`; multi-**model** sweeps are milestone 5b | Partial (5b) | `tests/test_experiments.py` |
 
 ## Section 5 — Measuring whether it works
 
@@ -62,7 +62,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Intervention cost | `intervention_cost` | Done | `tests/test_evaluation.py` |
 | Recovery rate | `recovery_rate` | Done | `tests/test_evaluation.py` |
 | Detection and prevention measured separately | `evaluate()` report splits both; per-decision `flagged` bit; `detection_only` mode; `prevention_confusion` | Done | `tests/test_evaluation.py::test_evaluate_report_structure`, `tests/test_baselines.py` |
-| Prevention–utility trade-off, confidence intervals across episodes | `threat_curve` checks observed FPR budget compliance; `calibrate_curve` computes threshold points from validation evidence | Partial: the experiment evaluator does not yet connect validation curves to scored runs; CI/multi-run aggregation planned milestone 5 | `tests/test_evaluation.py` |
+| Prevention–utility trade-off, confidence intervals across episodes | `threat_curve` checks observed FPR budget compliance; `calibrate_curve` computes threshold points from validation evidence; `evaluation/robustness.py::bootstrap_ci` / `robustness_intervals` give 95% bootstrap CIs across seeds, overall and per axis value | Done (CIs landed in Milestone 5) | `tests/test_evaluation.py`, `tests/test_robustness.py` |
 
 ## Section 5b — Baseline comparison (Milestone 3)
 
@@ -95,7 +95,7 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Petri for model-based behavioral audits | `docs/petri-inspect.md`; package/task smoke-launched locally, but the small model never interacted with the target | Partial; needs a capable auditor model |
 | Inspect AI for reproducible evaluation runs | `inspect_tasks/collusions_eval.py`; optional `.[inspect]` dependency; CLI smoke runs completed | Done for deterministic harness adapter |
 | Scenario A then Scenario B | both implemented | Done |
-| Expand to robustness/ablations/cross-model (milestone 5) | — | Planned |
+| Expand to robustness/ablations (milestone 5) | `evaluation/robustness.py`, `experiments/milestone5_*.yaml`, `docs/milestone-5-robustness.md`; cross-**model** sweep deferred to 5b | Done (5b for models) |
 | Generalize monitor interface to double-auction benchmark (milestone 6) | — | Planned |
 
 ## Section 7 — When the trusted agent fails

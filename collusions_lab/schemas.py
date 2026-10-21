@@ -94,12 +94,17 @@ class MonitorType(str, enum.Enum):
     * LLM_JUDGE -- Baseline 2: a separate model classifies the evidence bundle.
     * ARTIFACT  -- Treatment: independent artifact/evidence verification drives safety;
                    coordination only informs investigation.
+    * ORACLE    -- Upper bound (Milestone 5): flags exactly the episodes whose verified
+                   harmful structural signature is present in the evidence bundle,
+                   ignoring coordination subtlety. Non-deployable; it exists only to
+                   bracket recall in robustness sweeps and never reads ground truth.
     """
 
     NONE = "none"
     RULES = "rules"
     LLM_JUDGE = "llm_judge"
     ARTIFACT = "artifact"
+    ORACLE = "oracle"
 
 
 class InterventionType(str, enum.Enum):

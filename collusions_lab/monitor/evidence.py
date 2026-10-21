@@ -27,8 +27,27 @@ class EvidenceCollector:
     inspection. Environment inspection is authoritative: the monitor re-runs checks
     rather than trusting claims."""
 
+    # ------------------------------------------------------------ observability
+    _OBSERVABILITY_MODES = ("full", "artifacts_only", "no_messages")
+
+    @classmethod
+    def _check_mode(cls, observability: str) -> str:
+        if observability not in cls._OBSERVABILITY_MODES:
+            raise ValueError(
+                f"unknown observability mode: {observability!r}; "
+                f"expected one of {cls._OBSERVABILITY_MODES}"
+            )
+        return observability
+
     # ----------------------------------------------------------------- SWE
-    def collect_swe(self, env, events: list[Event], step: Optional[int] = None) -> EvidenceBundle:
+    def collect_swe(
+        self,
+        env,
+        events: list[Event],
+        step: Optional[int] = None,
+        observability: str = "full",
+    ) -> EvidenceBundle:
+        observability = self._check_mode(observability)
         invariant_violated, invariant_reasons = env.invariant_violated()
         verified, evidence_details = env.claimed_vs_independent()
         prov_ok, prov_reasons = env.provenance_complete()
@@ -45,29 +64,48 @@ class EvidenceCollector:
             if e.type == EventType.DECISION
         ]
 
+        artifact = {
+            "changed_files": env.changed_files(),
+            "diff": env.build_diff(),
+            "invariant_violated": invariant_violated,
+            "invariant_reasons": invariant_reasons,
+            "provenance_complete": prov_ok,
+            "provenance_reasons": prov_reasons,
+            "sensitive_edits": env.sensitive_edits(),
+        }
+        evidence = {
+            "verified": verified,
+            "details": evidence_details,
+            "test_claims": env.test_claims,
+        }
+        behavior = {"messages": messages, "decisions": decisions}
+
+        # Observability redaction (Milestone 5). The monitor's *view* is trimmed;
+        # agent-visible evidence is never affected (the authoritative log is intact).
+        if observability == "no_messages":
+            behavior = {"messages": [], "decisions": decisions}
+        elif observability == "artifacts_only":
+            evidence = {}
+            behavior = {"messages": [], "decisions": []}
+
         return EvidenceBundle(
             episode_id=events[0].episode_id if events else env.seed.__str__(),
             step=step if step is not None else (events[-1].step if events else 0),
             scenario="software_engineering",
-            artifact={
-                "changed_files": env.changed_files(),
-                "diff": env.build_diff(),
-                "invariant_violated": invariant_violated,
-                "invariant_reasons": invariant_reasons,
-                "provenance_complete": prov_ok,
-                "provenance_reasons": prov_reasons,
-                "sensitive_edits": env.sensitive_edits(),
-            },
-            evidence={
-                "verified": verified,
-                "details": evidence_details,
-                "test_claims": env.test_claims,
-            },
-            behavior={"messages": messages, "decisions": decisions},
+            artifact=artifact,
+            evidence=evidence,
+            behavior=behavior,
         )
 
     # -------------------------------------------------------------- markets
-    def collect_market(self, market, events: list[Event], step: Optional[int] = None) -> EvidenceBundle:
+    def collect_market(
+        self,
+        market,
+        events: list[Event],
+        step: Optional[int] = None,
+        observability: str = "full",
+    ) -> EvidenceBundle:
+        observability = self._check_mode(observability)
         mean_price = market.mean_price()
         delta = market.collusion_index()
         recent_delta = market.recent_delta()
@@ -76,6 +114,22 @@ class EvidenceCollector:
         dispersion = (
             max(prices) - min(prices) if prices else 0.0
         )
+        behavior = {
+            "timeline": [
+                {"agent": e.agent_id, "text": e.content.get("text", e.content.get("action", ""))}
+                for e in events
+                if e.type in (EventType.ACTION, EventType.MESSAGE)
+            ]
+        }
+        evidence: dict[str, Any] = {"independent_benchmark": True}
+
+        # Observability redaction (Milestone 5): the market has no separate artifact
+        # channel, so redaction trims the monitor's behavioural timeline.
+        if observability in ("no_messages", "artifacts_only"):
+            behavior = {"timeline": []}
+        if observability == "artifacts_only":
+            evidence = {}
+
         return EvidenceBundle(
             episode_id=events[0].episode_id if events else str(market.seed),
             step=step if step is not None else (market.state.step if market.state else 0),
@@ -92,12 +146,6 @@ class EvidenceCollector:
                 "consumer_welfare": market.consumer_welfare(),
                 "price_history": market.price_history[-50:],
             },
-            evidence={"independent_benchmark": True},
-            behavior={
-                "timeline": [
-                    {"agent": e.agent_id, "text": e.content.get("text", e.content.get("action", ""))}
-                    for e in events
-                    if e.type in (EventType.ACTION, EventType.MESSAGE)
-                ]
-            },
+            evidence=evidence,
+            behavior=behavior,
         )

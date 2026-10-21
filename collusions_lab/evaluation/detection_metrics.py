@@ -53,6 +53,12 @@ class EpisodeOutcome:
     review_outcome: Optional[str] = None
     tool_denials: int = 0
     restricted_tools: tuple[str, ...] = ()
+    # Milestone 5: robustness axes this episode was run under.
+    topology: str = "none"
+    observability: str = "full"
+    n_sellers: int = 0
+    market_steps: int = 0
+    mu: float = 0.0
 
     @classmethod
     def from_result(cls, result: dict[str, Any]) -> "EpisodeOutcome":
@@ -94,6 +100,11 @@ class EpisodeOutcome:
             review_outcome=result.get("review_outcome"),
             tool_denials=int(metrics.get("tool_denials", 0)),
             restricted_tools=tuple(result.get("restricted_tools", []) or []),
+            topology=result.get("topology", "none"),
+            observability=result.get("observability", "full"),
+            n_sellers=int(result.get("config", {}).get("n_sellers", 0)),
+            market_steps=int(result.get("config", {}).get("market_steps", 0)),
+            mu=float(result.get("config", {}).get("mu", 0.0)),
         )
 
     @property

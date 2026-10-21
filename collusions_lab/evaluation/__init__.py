@@ -37,6 +37,13 @@ from .utility_metrics import (
     task_utility_retained,
     utility_summary,
 )
+from .robustness import (
+    ROBUSTNESS_AXES,
+    axis_values,
+    by_axis,
+    bootstrap_ci,
+    robustness_intervals,
+)
 
 __all__ = [
     "EpisodeOutcome",
@@ -45,6 +52,10 @@ __all__ = [
     "threat_curve",
     "by_monitor_type",
     "by_intervention",
+    "by_axis",
+    "bootstrap_ci",
+    "robustness_intervals",
+    "ROBUSTNESS_AXES",
     "confusion",
     "detection_summary",
     "detection_recall",
@@ -119,6 +130,13 @@ def evaluate(
     report["by_monitor_type"] = by_monitor_type(outcomes, baseline)
     report["by_intervention"] = by_intervention(outcomes, baseline)
     report["threat_curve"] = threat_curve(outcomes)
+    # Milestone 5: only report axes that actually vary across the episode set.
+    report["by_axis"] = {}
+    for axis in ROBUSTNESS_AXES:
+        values = axis_values(outcomes, axis)
+        if len(values) > 1:
+            report["by_axis"][axis] = by_axis(outcomes, axis, baseline)
+    report["robustness"] = robustness_intervals(outcomes)
     return report
 
 
@@ -257,6 +275,19 @@ def format_report(report: dict[str, Any]) -> str:
         lines.append(
             f"  interven   tool_denial_rate={r.get('tool_denial_rate')} "
             f"reviews={r.get('review_outcome_distribution', {})}"
+        )
+    for axis, slices in report.get("by_axis", {}).items():
+        for value, r in slices.items():
+            if value == "axis":
+                continue
+            _block(f"axis:{axis}={value}", r)
+    ci = report.get("robustness", {}).get("overall")
+    if ci:
+        lines.append(
+            "\n[bootstrap CI (95%)]  "
+            f"recall={ci['recall']['point']} [{ci['recall']['low']}, {ci['recall']['high']}]  "
+            f"prevention={ci['harm_prevention']['point']} "
+            f"[{ci['harm_prevention']['low']}, {ci['harm_prevention']['high']}]"
         )
     return "\n".join(lines)
 

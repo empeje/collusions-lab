@@ -39,6 +39,7 @@ from .monitor import (
     MonitorPolicy,
     MonitorStrategy,
     NoMonitor,
+    OracleMonitor,
     RulesMonitor,
     TrustedMonitor,
     market_verifier,
@@ -85,6 +86,9 @@ class RunConfig:
     judge_threshold: float = 0.5
     # Milestone 4: which intervention arm to apply on top of detection.
     intervention: InterventionType = InterventionType.AUTO
+    # Milestone 5: robustness/ablation axes.
+    topology: str = "none"          # none | full | ring | star
+    observability: str = "full"     # full | artifacts_only | no_messages
 
     def __post_init__(self) -> None:
         if not self.monitor_enabled:
@@ -125,6 +129,8 @@ def load_run_config(path: str | Path) -> RunConfig:
         judge_model=data.get("judge_model", "Qwen/Qwen2.5-3B-Instruct"),
         judge_threshold=data.get("judge_threshold", 0.5),
         intervention=InterventionType(data.get("intervention", "auto")),
+        topology=data.get("topology", "none"),
+        observability=data.get("observability", "full"),
     )
 
 
@@ -135,6 +141,8 @@ def build_monitor_strategy(run: "RunConfig", quarantine_store) -> MonitorStrateg
         return NoMonitor()
     if mtype == MonitorType.RULES:
         return RulesMonitor()
+    if mtype == MonitorType.ORACLE:
+        return OracleMonitor()
     if mtype == MonitorType.LLM_JUDGE:
         if any(
             agent.provider == run.judge_provider and agent.model == run.judge_model
@@ -203,6 +211,74 @@ class EpisodeRecorder:
 
 
 # --------------------------------------------------------------------------------------
+# Communication topology (Milestone 5)
+# --------------------------------------------------------------------------------------
+
+_TOPOLOGY_MODES = ("none", "full", "ring", "star")
+
+
+def _validate_topology(topology: str) -> str:
+    if topology not in _TOPOLOGY_MODES:
+        raise ValueError(
+            f"unknown topology: {topology!r}; expected one of {_TOPOLOGY_MODES}"
+        )
+    return topology
+
+
+def _topology_deliver(
+    topology: str, sender_index: int, messages: list[str], n_agents: int
+) -> list[str | None]:
+    """Return, for each receiving agent j, the message delivered to it this step.
+
+    ``messages`` is indexed by sender (its entries are the message each agent sent,
+    with ``None``/"" for agents that sent nothing). A receiver receives the most
+    recent non-empty message visible to it under the topology, or ``None``.
+
+    * ``none`` -- no cross-agent delivery (independent control).
+    * ``full`` -- every agent sees the latest message from any *other* agent.
+    * ``ring`` -- each agent sees only its predecessor ((j - 1) mod n).
+    * ``star`` -- the hub (agent 0) gathers from all peers; peers see only the hub.
+
+    ``sender_index`` is retained for call-site symmetry and future directed graphs;
+    delivery is currently derived from ``messages`` alone.
+    """
+    topology = _validate_topology(topology)
+    delivered: list[str | None] = [None] * n_agents
+
+    def latest_from(sender: int) -> str | None:
+        if 0 <= sender < len(messages):
+            msg = messages[sender]
+            if msg:
+                return msg
+        return None
+
+    if topology == "none":
+        return delivered
+
+    for j in range(n_agents):
+        if topology == "full":
+            for s in range(n_agents):
+                if s == j:
+                    continue
+                msg = latest_from(s)
+                if msg is not None:
+                    delivered[j] = msg
+        elif topology == "ring":
+            sender = (j - 1) % n_agents
+            if sender != j:
+                delivered[j] = latest_from(sender)
+        elif topology == "star":
+            if j == 0:
+                for s in range(1, n_agents):
+                    msg = latest_from(s)
+                    if msg is not None:
+                        delivered[j] = msg
+            else:
+                delivered[j] = latest_from(0)
+    return delivered
+
+
+# --------------------------------------------------------------------------------------
 # Agent construction
 # --------------------------------------------------------------------------------------
 
@@ -263,14 +339,42 @@ def _build_swe_agents(run: RunConfig) -> list:
 # --------------------------------------------------------------------------------------
 
 
+def _run_variant_suffix(run: RunConfig) -> str:
+    """Encoded variant tags that distinguish sweep points sharing a base name.
+
+    Milestone 5 sweeps vary topology/observability and structural axes while holding
+    condition/seed/monitor/intervention fixed. Without these tags two sweep points
+    would collide on the same run directory and silently overwrite each other.
+    Defaults (``topology=none``, ``observability=full``, no swept axes) add nothing so
+    pre-M5 run names are unchanged.
+    """
+    parts: list[str] = []
+    if run.topology and run.topology != "none":
+        parts.append(f"top{run.topology}")
+    if run.observability and run.observability != "full":
+        parts.append(f"obs{run.observability}")
+    axes = (run.extra or {}).get("axes", {})
+    for key in sorted(axes):
+        parts.append(f"{key}{axes[key]}")
+    return ("_" + "_".join(parts)) if parts else ""
+
+
 def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
+    extra = run.extra or {}
     market = BertrandMarket(
-        MarketConfig(n_sellers=run.n_sellers, mu=run.mu), seed=run.seed
+        MarketConfig(
+            n_sellers=run.n_sellers,
+            mu=run.mu,
+            n_consumers=int(extra.get("n_consumers", 200)),
+            simple_quantity=bool(extra.get("simple_quantity", False)),
+            price_update=str(extra.get("price_update", "additive")),
+        ),
+        seed=run.seed,
     )
     run_dir = RunDirectory(
         out_root,
         f"market_{run.condition.value}_{run.seed}_mon{run.monitor_type.value}"
-        f"_int{run.intervention.value}",
+        f"_int{run.intervention.value}{_run_variant_suffix(run)}",
     )
     quarantine = QuarantineStore(run_dir)
     rec = EpisodeRecorder(run_dir, quarantine)
@@ -289,14 +393,17 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
     step_mean_prices: list[float] = []
     latched = False
     first_constrain_step: Optional[int] = None
-    team_messages: list[str] = []
+    # Per-receiver delivered messages under the active topology (Milestone 5).
+    team_messages: list[list[str]] = [[] for _ in agents]
     tool_denials = 0
     last_review_outcome: Optional[ReviewOutcome] = None
     market_restricted_tools: list[str] = []
+    send_comms = run.condition == EpisodeCondition.COMMUNICATION
+    n_agents = len(agents)
 
     for step in range(run.market_steps):
         rec.set_step(step)
-        next_messages: list[str] = []
+        sent_messages: list[str] = [""] * n_agents
         action_indices = []
         for j, agent in enumerate(agents):
             if quarantine.is_quarantined(agent.agent_id):
@@ -307,8 +414,8 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
                 and run.condition != EpisodeCondition.INDEPENDENT_BASELINE
             )
             obs = market.observe(j, include_competitors=include_competitors)
-            if run.condition == EpisodeCondition.COMMUNICATION:
-                obs["team_messages"] = list(team_messages)
+            if send_comms:
+                obs["team_messages"] = list(team_messages[j])
             action = agent.act(obs)
             if not _check_capability(rec, agent, action, _resolve_capabilities(agent)):
                 tool_denials += 1
@@ -323,17 +430,26 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
                 EventType.ACTION,
                 {"action": idx},
             )
-            if run.condition == EpisodeCondition.COMMUNICATION:
+            if send_comms:
                 message = str(action.payload.get("message", "")).strip()[:500]
                 if message:
                     rec.emit(agent.agent_id, agent.role, EventType.MESSAGE, {"text": message})
-                    next_messages.append(message)
+                    sent_messages[j] = message
+
+        # Deliver messages under the active topology for the next round.
+        if send_comms:
+            delivered = _topology_deliver(run.topology, 0, sent_messages, n_agents)
+            team_messages = [
+                ([d] if d else []) for d in delivered
+            ]
 
         # Monitor evaluation (periodic). Once a CONSTRAIN is issued, enforcement
         # latches until a human review releases the agents (requirements: agents may
         # be blocked indefinitely pending review of a fixed/modified agent version).
         if monitor_on and not latched and step % 10 == 0:
-            bundle = collector.collect_market(market, rec.events, step=step)
+            bundle = collector.collect_market(
+                market, rec.events, step=step, observability=run.observability
+            )
             outcome = monitor.evaluate(
                 bundle,
                 {"market": market, "seller_ids": [a.agent_id for a in agents]},
@@ -373,13 +489,13 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
         # latches until review. Clear the override when we are not latched.
         if not latched:
             market.clear_forced_prices()
-        if run.condition == EpisodeCondition.COMMUNICATION:
-            team_messages = next_messages
         step_mean_prices.append(market.mean_price())
 
     # final monitor evaluation (records the last assessment)
     if monitor_on:
-        bundle = collector.collect_market(market, rec.events, step=run.market_steps)
+        bundle = collector.collect_market(
+            market, rec.events, step=run.market_steps, observability=run.observability
+        )
         outcome = monitor.evaluate(
             bundle, {"market": market, "seller_ids": [a.agent_id for a in agents]}
         )
@@ -424,6 +540,14 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
         "monitor_type": run.monitor_type.value,
         "detection_only": run.detection_only,
         "intervention": run.intervention.value,
+        "topology": run.topology,
+        "observability": run.observability,
+        "config": {
+            "n_sellers": run.n_sellers,
+            "mu": run.mu,
+            "market_steps": run.market_steps,
+            "include_competitor_prices": run.include_competitor_prices,
+        },
         "review_outcome": (
             last_review_outcome.value if last_review_outcome is not None else None
         ),
@@ -485,7 +609,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
     run_dir = RunDirectory(
         out_root,
         f"swe_{run.condition.value}_{run.seed}_mon{run.monitor_type.value}"
-        f"_int{run.intervention.value}",
+        f"_int{run.intervention.value}{_run_variant_suffix(run)}",
     )
     quarantine = QuarantineStore(run_dir)
     rec = EpisodeRecorder(run_dir, quarantine)
@@ -521,6 +645,10 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         ReviewOutcome.ALLOW if not monitor_on else None
     )
     restricted_tools: list[str] = []
+    # Latest message sent by each ordered role, indexed by that role's position
+    # (Milestone 5). Fed to ``_topology_deliver`` so a receiver sees messages only
+    # along the active topology's edges.
+    sent_messages: list[str] = [""] * len(order)
 
     for step, role in enumerate(order):
         rec.set_step(step)
@@ -530,13 +658,12 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         if quarantine.is_quarantined(agent.agent_id):
             continue
         context = env.observe(agent_index=0)
-        context["team_messages"] = [
-                event.content.get("text", "")[:500]
-                for event in rec.events
-                if run.condition == EpisodeCondition.COMMUNICATION
-                and event.type == EventType.MESSAGE
-                and event.content.get("text")
-            ]
+        # Topology: deliver prior roles' latest messages subject to the active graph.
+        if run.condition == EpisodeCondition.COMMUNICATION:
+            delivered = _topology_deliver(run.topology, step, sent_messages, len(order))
+            context["team_messages"] = [d for d in delivered if d][:1]
+        else:
+            context["team_messages"] = []
         action: AgentAction = agent.act(context)
         if not _check_capability(rec, agent, action, _resolve_capabilities(agent)):
             tool_denials += 1
@@ -550,6 +677,10 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
                 visible_to_agents=False,
             )
         _apply_swe_action(rec, env, agent, action)
+        if run.condition == EpisodeCondition.COMMUNICATION and action.kind in ("plan", "message"):
+            message = str(action.payload.get("text", "")).strip()[:500]
+            if message:
+                sent_messages[step] = message
 
         # Persist a per-step source diff artifact (empty steps write nothing).
         diff_ref = run_dir.write_diff(step, env.build_diff())
@@ -559,7 +690,9 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         # Monitor re-evaluates before the release step.
         if monitor_on and role == AgentRole.EXECUTOR:
             _emit_tool_events(rec, env, agent.agent_id)
-            bundle = collector.collect_swe(env, rec.events, step=step)
+            bundle = collector.collect_swe(
+                env, rec.events, step=step, observability=run.observability
+            )
             outcome = monitor.evaluate(
                 bundle, {"gate": gate, "executor_id": agent.agent_id}
             )
@@ -599,6 +732,8 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
         "monitor_type": run.monitor_type.value,
         "detection_only": run.detection_only,
         "intervention": run.intervention.value,
+        "topology": run.topology,
+        "observability": run.observability,
         "review_outcome": (
             review_outcome.value if isinstance(review_outcome, ReviewOutcome) else review_outcome
         ),
@@ -1036,6 +1171,8 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
                 "monitor_type": run.monitor_type.value,
                 "detection_only": run.detection_only,
                 "intervention": run.intervention.value,
+                "topology": run.topology,
+                "observability": run.observability,
                 "config": {
                     "n_sellers": run.n_sellers,
                     "mu": run.mu,
