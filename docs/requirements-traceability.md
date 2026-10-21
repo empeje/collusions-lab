@@ -62,14 +62,14 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Intervention cost | `intervention_cost` | Done | `tests/test_evaluation.py` |
 | Recovery rate | `recovery_rate` | Done | `tests/test_evaluation.py` |
 | Detection and prevention measured separately | `evaluate()` report splits both; per-decision `flagged` bit; `detection_only` mode; `prevention_confusion` | Done | `tests/test_evaluation.py::test_evaluate_report_structure`, `tests/test_baselines.py` |
-| Prevention–utility trade-off, confidence intervals across episodes | `threat_curve` reports prevention/detection at fixed FPR budgets per monitor arm; CI/multi-run aggregation | Partial (threat curve done; CI planned milestone 5) | `tests/test_evaluation.py` |
+| Prevention–utility trade-off, confidence intervals across episodes | `threat_curve` checks observed FPR budget compliance; `calibrate_curve` computes threshold points from validation evidence | Partial: the experiment evaluator does not yet connect validation curves to scored runs; CI/multi-run aggregation planned milestone 5 | `tests/test_evaluation.py` |
 
 ## Section 5b — Baseline comparison (Milestone 3)
 
 | Requirement | Implementation | Status | Tests |
 |---|---|---|---|
 | Rules-only baseline (surface heuristics, no independent re-execution) | `monitor/baselines.py::RulesMonitor`; `policy.MonitorPolicy(rule_set="rules")` | Done | `tests/test_baselines.py` |
-| Black-box LLM-judge baseline | `monitor/baselines.py::LLMJudgeMonitor` + `calibrate_threshold`; default `hf`/`Qwen/Qwen2.5-3B-Instruct` | Done | `tests/test_baselines.py` |
+| Black-box LLM-judge baseline | `monitor/baselines.py::LLMJudgeMonitor` + `calibrate_threshold`; separate provider/model pair is enforced | Partial: calibration helper exists, but the sweep does not automatically create a validation split or apply its threshold | `tests/test_baselines.py` |
 | Artifact-verification (treatment) baseline | `monitor/baselines.py::ArtifactVerificationMonitor` (independent detector + artifact policy) | Done | `tests/test_baselines.py` |
 | No-monitor control | `monitor/baselines.py::NoMonitor` (`monitor_type=none`) | Done | `tests/test_baselines.py` |
 | Detection separate from enforcement | `MonitorDecision.flagged`/`detection_only`; `TrustedMonitor(detection_only=...)` | Done | `tests/test_baselines.py::test_detection_only_records_flag_without_enforcing` |
@@ -97,3 +97,20 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Agents that discover the monitor | `QUARANTINE` + `QuarantineStore` |
 
 See `docs/architecture.md` for the full threat model and limitations.
+
+## Milestone 2 — Standardize the harness
+
+| Requirement | Implementation | Status | Tests |
+|---|---|---|---|
+| Common agent and environment transition contracts | `harness/interfaces.py`; environment `reset`, `observe`, and `step`; normalized `StepResult` | Done for current market and SWE environments | `tests/test_harness.py` |
+| Common environment events and monitor decisions | `schemas.Event`, `EventType`, `MonitorDecision`; prompt and monitor-tool events are private from the agent shared stream | Done | `tests/test_harness.py` |
+| Ground-truth labels | `GroundTruth` in `result.json`; scenario-specific label functions | Partial; no shared labeling contract | `tests/test_episodes.py` |
+| Episode replay | `harness/replay.py`; requires manifest/result and wraps malformed event streams as `ReplayError` | Done for persisted audit replay | `tests/test_harness.py` |
+| Record random seeds | `manifest.json` and environment reset | Done | `tests/test_harness.py` |
+| Record model versions | Provider and model identifier in provenance | Partial; immutable hosted revision is not resolved | `tests/test_harness.py` |
+| Record configured and generated prompts | Full generated prompts and hashes in private events; configured prompts and hashes in manifest | Done | `tests/test_harness.py` |
+| Record tool calls | Monitor verification calls are recorded; scenario agents do not yet invoke tools | Partial | `tests/test_harness.py` |
+| Record source diffs | SWE per-step diff artifacts | Done for SWE; not applicable to market episodes | `tests/test_harness.py` |
+| Scenario-independent runner extension | Market and SWE loops remain separate in `runner.py` | Partial; new scenarios require runner changes | `docs/milestone-2-review.md` |
+
+See `docs/milestone-2-review.md` for the compliance analysis and remaining work.

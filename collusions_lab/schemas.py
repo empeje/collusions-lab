@@ -199,6 +199,15 @@ class Event:
         return dumps(self)
 
 
+@dataclass
+class StepResult:
+    """Normalized outcome of one environment transition."""
+
+    step: int
+    done: bool = False
+    info: dict[str, Any] = field(default_factory=dict)
+
+
 # --------------------------------------------------------------------------------------
 # Ground truth + monitor records
 # --------------------------------------------------------------------------------------
