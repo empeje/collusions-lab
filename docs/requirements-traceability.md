@@ -85,3 +85,20 @@ prototype), **Planned** (later milestone), **Gap** (required outcome not present
 | Agents that discover the monitor | `QUARANTINE` + `QuarantineStore` |
 
 See `docs/architecture.md` for the full threat model and limitations.
+
+## Milestone 2 — Standardize the harness
+
+| Requirement | Implementation | Status | Tests |
+|---|---|---|---|
+| Common agent and environment transition contracts | `harness/interfaces.py`; environment `reset`, `observe`, and `step`; normalized `StepResult` | Done for current market and SWE environments | `tests/test_harness.py` |
+| Common environment events and monitor decisions | `schemas.Event`, `EventType`, `MonitorDecision`; prompt and monitor-tool events are private from the agent shared stream | Done | `tests/test_harness.py` |
+| Ground-truth labels | `GroundTruth` in `result.json`; scenario-specific label functions | Partial; no shared labeling contract | `tests/test_episodes.py` |
+| Episode replay | `harness/replay.py`; requires manifest/result and wraps malformed event streams as `ReplayError` | Done for persisted audit replay | `tests/test_harness.py` |
+| Record random seeds | `manifest.json` and environment reset | Done | `tests/test_harness.py` |
+| Record model versions | Provider and model identifier in provenance | Partial; immutable hosted revision is not resolved | `tests/test_harness.py` |
+| Record configured and generated prompts | Full generated prompts and hashes in private events; configured prompts and hashes in manifest | Done | `tests/test_harness.py` |
+| Record tool calls | Monitor verification calls are recorded; scenario agents do not yet invoke tools | Partial | `tests/test_harness.py` |
+| Record source diffs | SWE per-step diff artifacts | Done for SWE; not applicable to market episodes | `tests/test_harness.py` |
+| Scenario-independent runner extension | Market and SWE loops remain separate in `runner.py` | Partial; new scenarios require runner changes | `docs/milestone-2-review.md` |
+
+See `docs/milestone-2-review.md` for the compliance analysis and remaining work.

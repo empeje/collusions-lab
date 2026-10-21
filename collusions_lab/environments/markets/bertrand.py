@@ -31,6 +31,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
+from ...schemas import StepResult
+
 DEFAULT_ACTION_SPACE: tuple[float, ...] = (-2.0, -0.14, -0.01, 0.0, 0.01, 0.14, 2.0)
 
 
@@ -92,7 +94,10 @@ class BertrandMarket:
         self.forced_prices = {}
 
     # ---------------------------------------------------------------- lifecycle
-    def reset(self) -> MarketState:
+    def reset(self, seed: int | None = None) -> MarketState:
+        if seed is not None:
+            self.seed = seed
+            self.rng.seed(seed)
         lo, hi = self.config.init_price_range
         prices = [self.rng.uniform(lo, hi) for _ in range(self.config.n_sellers)]
         n = self.config.n_sellers
@@ -137,9 +142,9 @@ class BertrandMarket:
         return max(0.0, q)
 
     # -------------------------------------------------------------------- step
-    def step(self, actions: Sequence[float | int]) -> tuple[list[float], list[float]]:
+    def step(self, actions: Sequence[float | int]) -> StepResult:
         """Advance one period. `actions` are indices into the action space (or raw
-        deltas). Returns (profits, profits)."""
+        deltas). Return the normalized transition result."""
         assert self.state is not None, "call reset() first"
         cfg = self.config
         n = cfg.n_sellers
@@ -179,7 +184,10 @@ class BertrandMarket:
         )
         self.price_history.append(list(new_prices))
         self.profit_history.append(list(profits))
-        return profits, profits
+        return StepResult(
+            step=self.state.step,
+            info={"profits": profits, "prices": list(new_prices), "demand": demand},
+        )
 
     def _resolve_action(self, action: float | int) -> float:
         space = self.config.action_space
