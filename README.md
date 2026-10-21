@@ -137,6 +137,14 @@ python -m pytest -q      # deterministic, no network
 python -m mypy collusions_lab
 ```
 
+For a guided end-to-end run (install, both scenario sweeps, metric aggregation,
+and a monitor on/off contrast check), see [`docs/quickstart.md`](docs/quickstart.md)
+or run the one-shot script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/quickstart.ps1
+```
+
 The `milestone1_*_fallback.yaml` sweeps are paired harness checks using scripted
 agents. They are not reproductions of SCHEME or the double-auction benchmark and do
 not establish LLM collusion rates. See [the Milestone 1 review](docs/milestone-1-review.md)
