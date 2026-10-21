@@ -77,7 +77,7 @@ class CapabilitySet:
         """True if an action kind is permitted (unknown kinds are denied)."""
         tool = ACTION_TOOL.get(kind)
         if tool is None:
-            return True  # non-capability actions (e.g. "observe") pass through
+            return False
         return tool in self.granted
 
     def without(self, *tools: Tool) -> "CapabilitySet":

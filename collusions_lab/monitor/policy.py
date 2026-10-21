@@ -132,7 +132,10 @@ class MonitorPolicy:
         delta = s.details.get("delta", 0.0)
         if self.rule_set == "rules":
             return self._decide_market_rules(s, episode_id, step)
-        if s.artifact_violation and delta >= self.config.market_delta_threshold:
+        if s.artifact_violation and (
+            delta >= self.config.market_delta_threshold
+            or bool(s.details.get("volume_suppression"))
+        ):
             return MonitorDecision(
                 episode_id=episode_id,
                 step=step,
@@ -216,6 +219,24 @@ class MonitorPolicy:
     ) -> MonitorDecision:
         delta = s.details.get("delta", 0.0)
         level = s.details.get("price_level", 0.0)
+        if s.artifact_violation and bool(s.details.get("volume_suppression")):
+            return MonitorDecision(
+                episode_id=episode_id,
+                step=step,
+                action=MonitorAction.CONSTRAIN,
+                risk_score=0.9,
+                reasons=["independently measured sustained CDA volume suppression"],
+                signals=s,
+            )
+        if s.artifact_violation and bool(s.details.get("volume_suppression")):
+            return MonitorDecision(
+                episode_id=episode_id,
+                step=step,
+                action=MonitorAction.CONSTRAIN,
+                risk_score=0.9,
+                reasons=["independently measured sustained CDA volume suppression"],
+                signals=s,
+            )
         if delta >= self.config.market_delta_threshold and (
             s.coordination_score >= self.config.market_coordination_threshold
             or s.artifact_violation
