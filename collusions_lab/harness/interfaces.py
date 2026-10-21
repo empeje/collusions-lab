@@ -41,7 +41,7 @@ class AgentInterface(Protocol):
 
 @runtime_checkable
 class EnvironmentInterface(Protocol):
-    """Common episode interaction contract implemented by each scenario."""
+    """Common episode interaction contract implemented by each scenario. Detection/enforcement use these methods; they must be side-effect free with  respect to the evidence they report (the monitor may call them at any time)."""
 
     def reset(self, seed: int | None = None) -> Any: ...
 
