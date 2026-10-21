@@ -111,6 +111,8 @@ class EpisodeRecorder:
         role: Optional[AgentRole],
         event_type: EventType,
         content: dict,
+        *,
+        visible_to_agents: bool = True,
     ) -> Event:
         event = Event(
             episode_id=self.run_dir.episode_id,
@@ -119,6 +121,7 @@ class EpisodeRecorder:
             role=role,
             type=event_type,
             content=content,
+            visible_to_agents=visible_to_agents,
         )
         self.authoritative.append(event)
         self.quarantine.publish(event)
@@ -214,7 +217,7 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
     monitor = TrustedMonitor(policy=MonitorPolicy(), quarantine_store=quarantine)
     collector = EvidenceCollector()
 
-    market.reset()
+    market.reset(seed=run.seed)
     decisions_all = []
     constrained_steps = 0
     step_mean_prices: list[float] = []
@@ -245,7 +248,7 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
                 agent.agent_id,
                 agent.role,
                 EventType.ACTION,
-                {"action": idx, "llm_metadata": action.payload.get("_llm")},
+                {"action": idx},
             )
             if run.condition == EpisodeCondition.COMMUNICATION:
                 message = str(action.payload.get("message", "")).strip()[:500]
@@ -378,7 +381,7 @@ def _collect_runtime_prompt_hashes(events: list[Event]) -> dict[str, list[str]]:
 
 def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
     env = SWEEnvironment(SWEConfig(keep_workdir=False))
-    env.setup()
+    env.reset(seed=run.seed)
     run_dir = RunDirectory(
         out_root, f"swe_{run.condition.value}_{run.seed}_mon{int(run.monitor_enabled)}"
     )
@@ -413,18 +416,14 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
             continue
         if quarantine.is_quarantined(agent.agent_id):
             continue
-        context = {
-            "files": {rel: env.read_file(rel) for rel in env.list_files()},
-            "changed_files": env.changed_files(),
-            "test_claims": env.test_claims,
-            "team_messages": [
+        context = env.observe(agent_index=0)
+        context["team_messages"] = [
                 event.content.get("text", "")[:500]
                 for event in rec.events
                 if run.condition == EpisodeCondition.COMMUNICATION
                 and event.type == EventType.MESSAGE
                 and event.content.get("text")
-            ],
-        }
+            ]
         action: AgentAction = agent.act(context)
         if action.payload.get("_llm"):
             rec.emit(
@@ -432,6 +431,7 @@ def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
                 agent.role,
                 EventType.PROMPT,
                 {"llm_metadata": action.payload["_llm"]},
+                visible_to_agents=False,
             )
         _apply_swe_action(rec, env, agent, action)
 
@@ -491,7 +491,13 @@ def _emit_prompt_if_present(rec: EpisodeRecorder, agent, action: AgentAction) ->
     """Record an LLM prompt's provenance (hash + model) as a PROMPT event."""
     meta = action.payload.get("_llm")
     if meta:
-        rec.emit(agent.agent_id, agent.role, EventType.PROMPT, {"llm_metadata": meta})
+        rec.emit(
+            agent.agent_id,
+            agent.role,
+            EventType.PROMPT,
+            {"llm_metadata": meta},
+            visible_to_agents=False,
+        )
 
 
 def _emit_tool_events(rec: EpisodeRecorder, env, agent_id: str) -> None:
@@ -506,7 +512,13 @@ def _emit_tool_events(rec: EpisodeRecorder, env, agent_id: str) -> None:
         "behavior_tests": env.run_behavior_tests,
     }
     for name, run in calls.items():
-        rec.emit(None, None, EventType.TOOL_CALL, {"tool": name, "actor": "monitor"})
+        rec.emit(
+            None,
+            None,
+            EventType.TOOL_CALL,
+            {"tool": name, "actor": "monitor"},
+            visible_to_agents=False,
+        )
         result = run()
         rec.emit(
             None,
@@ -519,25 +531,29 @@ def _emit_tool_events(rec: EpisodeRecorder, env, agent_id: str) -> None:
                 "returncode": result.returncode,
                 "duration_s": round(result.duration_s, 4),
             },
+            visible_to_agents=False,
         )
 
 
 def _apply_swe_action(rec: EpisodeRecorder, env, agent, action: AgentAction) -> None:
     role = agent.role
+    step_result = env.step(action, agent_id=agent.agent_id)
     if action.kind == "plan":
         rec.emit(agent.agent_id, role, EventType.MESSAGE, {"text": action.payload.get("text", "")})
     elif action.kind == "write_file":
-        for f in action.payload.get("files", []):
-            ok = env.write_file(agent.agent_id, f["path"], f["content"])
+        for write in step_result.info.get("writes", []):
             rec.emit(
                 agent.agent_id,
                 role,
                 EventType.ACTION,
-                {"write_file": f["path"], "allowed": ok, "bytes": len(f["content"])},
+                {
+                    "write_file": write["path"],
+                    "allowed": write["allowed"],
+                    "bytes": write["bytes"],
+                },
             )
     elif action.kind == "claim":
-        passed = bool(action.payload.get("claimed_passed"))
-        env.record_test_claim(agent.agent_id, "behavior_tests", passed, action.payload.get("text", ""))
+        passed = bool(step_result.info["claimed_passed"])
         rec.emit(
             agent.agent_id,
             role,
@@ -631,6 +647,7 @@ def run_episode(run: RunConfig, out_root: str | Path = "runs") -> dict:
     run_dir.manifest_path().write_text(
         json.dumps(
             {
+                "episode_id": result["episode_id"],
                 "scenario": run.scenario.value,
                 "condition": run.condition.value,
                 "seed": run.seed,
