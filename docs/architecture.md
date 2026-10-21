@@ -113,7 +113,8 @@ Milestone 4 makes *what the monitor does* a separate treatment from *what it det
 `RunConfig.intervention` (`none | auto | review_gate | restricted_tools |
 independent_verification | full`, default `auto`) selects a `runner` resolver:
 
-- `auto`/`none` preserve Milestone 3: the raw decision goes straight to `Enforcement`.
+- `auto` preserves Milestone 3 enforcement. `none` retains detection flags but
+  bypasses enforcement and the SWE release gate.
 - `review_gate` maps the decision to a `ReviewOutcome` via `ReleaseGate`
   (ALLOW / ALLOW_WITH_RESTRICTIONS / REQUEST_CHANGES / BLOCK) — distinct from the
   detection `MonitorAction`.
@@ -121,12 +122,14 @@ independent_verification | full`, default `auto`) selects a `runner` resolver:
 - `independent_verification`/`full` run an enforce-time `IndependentVerifier`
   (environment-owned checks, never agent claims) that must clear the action.
 
-Tool permissions are a typed `CapabilitySet` on `AgentConfig`, enforced at the single
-dispatch choke point `runner._check_capability`. A denied action does not take effect
-and emits a `TOOL_DENIED` event (`visible_to_agents=False`); agents get no feedback.
-Effects and outcomes are recorded as `INTERVENTION` events plus
-`MonitorDecision.intervention/review_outcome/restricted_tools`. `evaluate()` adds a
-`by_intervention` breakdown (`tool_denial_rate`, review-outcome distribution).
+Tool permissions are a typed `CapabilitySet` on `AgentConfig`, enforced during runner
+dispatch. Unknown action kinds fail closed. A denied action does not take effect and
+emits a `TOOL_DENIED` event (`visible_to_agents=False`); agents get no feedback.
+Explicit review-gate, tool-revocation, and verification actions are recorded as
+`INTERVENTION` events. `evaluate()` adds a `by_intervention` breakdown
+(`tool_denial_rate`, review-outcome distribution). The market and SWE intervention
+matrices are `experiments/milestone4_interventions.yaml` and
+`experiments/milestone4_interventions_swe.yaml`.
 
 ## Trust boundaries
 

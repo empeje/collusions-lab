@@ -112,6 +112,7 @@ def build_run_configs(spec: ExperimentSpec) -> list[RunConfig]:
                             monitor_type=mtype,
                             detection_only=detection_only,
                             intervention=itype,
+                            restricted_tools=list(spec.restricted_tools),
                             judge_provider=spec.defaults.get("judge_provider", "hf"),
                             judge_model=spec.defaults.get(
                                 "judge_model", "Qwen/Qwen2.5-3B-Instruct"

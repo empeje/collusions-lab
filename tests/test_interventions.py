@@ -53,13 +53,41 @@ def test_allows_action_maps_kinds():
     caps = CapabilitySet(frozenset({Tool.WRITE_FILE}))
     assert caps.allows_action("write_file")
     assert not caps.allows_action("release")
-    # Unknown / non-capability actions pass through.
-    assert caps.allows_action("observe")
+    # Unknown action kinds fail closed at the dispatch boundary.
+    assert not caps.allows_action("observe")
 
 
 def test_action_tool_table_covers_swe_and_market():
     assert ACTION_TOOL["price"] == Tool.PRICE
     assert ACTION_TOOL["release"] == Tool.RELEASE
+
+
+def test_embedded_market_message_requires_communication_capability(tmp_path):
+    from types import SimpleNamespace
+    from collusions_lab.agents.core import AgentAction
+    from collusions_lab.runner import (
+        EpisodeRecorder,
+        _check_capability,
+        _check_tool_capability,
+    )
+    from collusions_lab.shared import QuarantineStore, RunDirectory
+
+    config = AgentConfig(
+        agent_id="seller", role=AgentRole.SELLER, model="m", provider="scripted",
+        system_prompt="", capabilities=CapabilitySet(frozenset({Tool.PRICE})),
+    )
+    agent = SimpleNamespace(agent_id="seller", role=AgentRole.SELLER, config=config)
+    run_dir = RunDirectory(tmp_path, "capability-message")
+    recorder = EpisodeRecorder(run_dir, QuarantineStore(run_dir))
+
+    # The permitted price action remains usable, but its embedded message is denied.
+    assert _check_capability(
+        recorder, agent, AgentAction("price", {"action": 3}), config.capabilities
+    )
+    assert not _check_tool_capability(recorder, agent, Tool.COMMUNICATE, "price")
+    denied = recorder.authoritative.read()
+    assert denied[-1].type.value == "tool_denied"
+    assert denied[-1].content["tool"] == "communicate"
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +148,43 @@ def test_verifier_aggregates_checks():
     assert result.failed_checks == ["b"]
 
 
+def test_full_swe_verifies_before_allow_with_restrictions(tmp_path):
+    from collusions_lab.environments.software_engineering.swe_env import ReleaseGate
+    from collusions_lab.monitor.verification import VerificationResult
+    from collusions_lab.runner import EpisodeRecorder, _apply_swe_intervention
+    from collusions_lab.shared import QuarantineStore, RunDirectory
+
+    env = SWEEnvironment(SWEConfig(keep_workdir=False))
+    env.setup()
+    run_dir = RunDirectory(tmp_path, "full-verified-allow")
+    recorder = EpisodeRecorder(run_dir, QuarantineStore(run_dir))
+    gate = ReleaseGate(env)
+    run = RunConfig(
+        scenario=Scenario.SOFTWARE_ENGINEERING,
+        condition=EpisodeCondition.INDEPENDENT_BASELINE,
+        agents=_swe_agents(),
+        seed=1,
+        monitor_type=MonitorType.RULES,
+        intervention=InterventionType.FULL,
+    )
+
+    class PassingVerifier:
+        def verify(self):
+            return VerificationResult(verified=True, passed_checks=["all"])
+
+    result = _apply_swe_intervention(
+        run, recorder, _decision(MonitorAction.ALLOW), gate, env,
+        PassingVerifier(), "executor",
+    )
+    assert result["release_allowed"] is True
+    assert result["review_outcome"] == ReviewOutcome.ALLOW_WITH_RESTRICTIONS.value
+    assert result["restricted_tools"] == ["write_file"]
+    assert env.release_requests == [
+        {"requestor": "executor", "decision": ReviewOutcome.ALLOW_WITH_RESTRICTIONS.value}
+    ]
+    env.teardown()
+
+
 # ---------------------------------------------------------------------------
 # Runner integration -- markets
 # ---------------------------------------------------------------------------
@@ -158,12 +223,29 @@ def test_intervention_recorded_and_named(tmp_path):
     result = _run_market(tmp_path, InterventionType.REVIEW_GATE)
     assert result["intervention"] == "review_gate"
     assert "intreview_gate" in result["episode_id"]
+    events = [
+        json.loads(line)
+        for line in (tmp_path / result["episode_id"] / "authoritative.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert any(event.get("type") == "intervention" for event in events)
 
 
 def test_none_arm_detects_but_does_not_prevent(tmp_path):
     result = _run_market(tmp_path, InterventionType.NONE)
     assert any(d["flagged"] for d in result["decisions"])
+    assert result["detection_only"] is True
     assert result["harmful_outcome"] is True
+
+
+def test_swe_none_arm_detects_but_allows_harmful_release(tmp_path):
+    result = _run_swe(tmp_path, InterventionType.NONE)
+    assert any(d["flagged"] for d in result["decisions"])
+    assert result["detection_only"] is True
+    assert result["harmful_change_present"] is True
+    assert result["harmful_outcome"] is True
+    assert result["harm_prevented"] is False
 
 
 def test_auto_arm_preserves_milestone3_behaviour(tmp_path):
@@ -180,6 +262,17 @@ def test_restricted_tools_denies_revoked_actions(tmp_path):
 def test_independent_verification_sets_block(tmp_path):
     result = _run_market(tmp_path, InterventionType.INDEPENDENT_VERIFICATION)
     assert result["review_outcome"] == ReviewOutcome.BLOCK.value
+    events = [
+        json.loads(line)
+        for line in (tmp_path / result["episode_id"] / "authoritative.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert any(
+        event.get("content", {}).get("tool") == "independent_verification"
+        and event.get("type") == "tool_call"
+        for event in events
+    )
 
 
 def test_manifest_carries_intervention(tmp_path):
@@ -243,6 +336,8 @@ def test_swe_review_gate_records_outcome(tmp_path):
 def test_swe_restricted_tools_revokes_write(tmp_path):
     result = _run_swe(tmp_path, InterventionType.RESTRICTED_TOOLS)
     assert result["restricted_tools"] == ["release", "write_file"]
+    # The intervention is resolved before the executor dispatches its release.
+    assert result["metrics"]["tool_denials"] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +374,24 @@ def test_experiment_spec_expands_interventions():
         runs = build_run_configs(load_experiment(p))
     arms = sorted(r.intervention.value for r in runs)
     assert arms == ["auto", "review_gate"]
+
+
+def test_swe_intervention_sweep_covers_all_arms_and_conditions():
+    from collusions_lab.experiments import build_run_configs, load_experiment
+    from pathlib import Path
+
+    spec = load_experiment(
+        Path(__file__).resolve().parents[1]
+        / "experiments"
+        / "milestone4_interventions_swe.yaml"
+    )
+    runs = build_run_configs(spec)
+    assert len(runs) == 3 * 5 * 6
+    assert {run.intervention.value for run in runs} == {
+        "none", "auto", "review_gate", "restricted_tools",
+        "independent_verification", "full",
+    }
+    assert all(run.restricted_tools == ["write_file", "release"] for run in runs)
 
 
 def test_by_intervention_breakdown(tmp_path):
