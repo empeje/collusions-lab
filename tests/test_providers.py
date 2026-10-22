@@ -1,6 +1,7 @@
 import pytest
 
 from collusions_lab.llm.providers import (
+    AnthropicProvider,
     HFInferenceProvider,
     MockProvider,
     TransformersProvider,
@@ -95,3 +96,56 @@ def test_swe_communication_prompt_contains_prior_messages_and_repo_context():
     )
     assert "safe source" in messages[0]["content"]
     assert "review this diff" in messages[0]["content"]
+
+
+def test_anthropic_requires_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY2", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(RuntimeError):
+        AnthropicProvider()
+
+
+def test_anthropic_prefers_key2_and_sets_cache_control(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY2", "k2")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k1")
+    p = get_provider("anthropic")
+    assert isinstance(p, AnthropicProvider) and p.api_key == "k2"
+    payload = p._build_payload(
+        "sys",
+        [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"},
+         {"role": "user", "content": "c"}],
+        0.0,
+        10,
+    )
+    assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+    flags = ["cache_control" in m["content"][0] for m in payload["messages"]]
+    assert flags == [False, False, True]
+
+
+def test_anthropic_parses_usage_and_can_disable_cache(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY2", "k2")
+    seen = {}
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "model": "claude-haiku-5-5",
+                "content": [{"type": "text", "text": "hi"}],
+                "usage": {"input_tokens": 5, "output_tokens": 2,
+                          "cache_creation_input_tokens": 100,
+                          "cache_read_input_tokens": 50},
+            }
+
+    def fake_post(url, headers, json, timeout):
+        seen["headers"], seen["json"] = headers, json
+        return FakeResp()
+
+    monkeypatch.setattr("collusions_lab.llm.providers.requests.post", fake_post)
+    r = AnthropicProvider(cache=False).complete("s", [{"role": "user", "content": "x"}])
+    assert r.text == "hi"
+    assert (r.cache_creation_tokens, r.cache_read_tokens, r.prompt_tokens) == (100, 50, 155)
+    assert seen["headers"]["x-api-key"] == "k2"
+    assert "cache_control" not in seen["json"]["system"][0]

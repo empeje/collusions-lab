@@ -1,6 +1,7 @@
 """LLM provider abstraction."""
 
 from .providers import (
+    AnthropicProvider,
     LLMProvider,
     LLMResponse,
     MockProvider,
@@ -11,6 +12,7 @@ from .providers import (
 )
 
 __all__ = [
+    "AnthropicProvider",
     "LLMProvider",
     "LLMResponse",
     "MockProvider",
