@@ -3,6 +3,7 @@
 from .providers import (
     LLMProvider,
     LLMResponse,
+    AnthropicProvider,
     MockProvider,
     OllamaProvider,
     OpenAIProvider,
@@ -13,6 +14,7 @@ from .providers import (
 __all__ = [
     "LLMProvider",
     "LLMResponse",
+    "AnthropicProvider",
     "MockProvider",
     "OllamaProvider",
     "OpenAIProvider",

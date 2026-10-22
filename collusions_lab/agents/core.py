@@ -123,6 +123,8 @@ class LLMAgent(Agent):
             {
                 "model": resp.model,
                 "tokens": resp.completion_tokens,
+                "cache_creation_tokens": resp.cache_creation_tokens,
+                "cache_read_tokens": resp.cache_read_tokens,
                 "prompt_sha256": hashlib.sha256(prompt_material.encode("utf-8")).hexdigest(),
             },
         )

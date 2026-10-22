@@ -109,6 +109,7 @@ Agents can be driven by a provider instead of the deterministic scripted policy:
 | `scripted` | default; deterministic, used for CI and controls |
 | `mock`     | offline canned responses for tests               |
 | `ollama`   | local models (e.g. `qwen2.5:3b-instruct`)        |
+| `anthropic`| Claude via official SDK; needs `ANTHROPIC_API_KEY`; prompt caching on (`pip install -e ".[anthropic]"`) |
 | `openai`   | needs `OPENAI_API_KEY`                           |
 | `gemini`   | needs `GEMINI_API_KEY`                           |
 

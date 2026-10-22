@@ -3,6 +3,7 @@
 Providers:
   * mock     -- deterministic, offline; used for CI and reproducible smoke tests
   * ollama   -- local open-weight models (default: qwen2.5:3b-instruct)
+  * anthropic -- Claude via the official SDK (ANTHROPIC_API_KEY), with prompt caching
   * openai   -- free-tier / openai-compatible endpoints (OPENAI_API_KEY, OPENAI_BASE_URL)
   * gemini   -- Google Gemini free tier (GEMINI_API_KEY / GOOGLE_API_KEY)
   * hf       -- Hugging Face Inference API via huggingface_hub (HF_TOKEN); CPU-friendly
@@ -30,6 +31,8 @@ class LLMResponse:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     latency_s: float = 0.0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 class LLMProvider(ABC):
@@ -143,6 +146,84 @@ class OllamaProvider(LLMProvider):
             prompt_tokens=data.get("prompt_eval_count", 0),
             completion_tokens=data.get("eval_count", 0),
             latency_s=time.perf_counter() - start,
+        )
+
+
+# --------------------------------------------------------------------------------------
+# Anthropic (Claude)
+# --------------------------------------------------------------------------------------
+
+
+class AnthropicProvider(LLMProvider):
+    """Claude via the official ``anthropic`` SDK; reads ``ANTHROPIC_API_KEY``.
+
+    Prompt caching: the system prompt is sent as a block with a ``cache_control``
+    breakpoint, so the stable per-agent prefix (tools -> system) is cached across
+    steps. Anthropic only caches prefixes above a model-dependent minimum length;
+    shorter prompts silently run uncached, so check ``cache_read_tokens`` on the
+    response. Sampling params (temperature etc.) are rejected by current models and
+    are therefore not sent; ``temperature`` is accepted for interface parity only.
+    """
+
+    name = "anthropic"
+    # Thinking tokens count against max_tokens on current models, so keep headroom.
+    MIN_MAX_TOKENS = 4096
+
+    def __init__(
+        self,
+        model: str = "claude-opus-5-5",
+        effort: str = "low",
+        cache_ttl: Optional[str] = None,
+        client: Any = None,
+        **options,
+    ):
+        super().__init__(model, **options)
+        self.effort = effort
+        self.cache_control: dict[str, str] = {"type": "ephemeral"}
+        if cache_ttl:
+            self.cache_control["ttl"] = cache_ttl
+        if client is None:
+            if not os.environ.get("ANTHROPIC_API_KEY"):
+                raise RuntimeError("ANTHROPIC_API_KEY is not set")
+            try:
+                import anthropic
+            except ImportError as exc:
+                raise RuntimeError(
+                    "The anthropic provider requires the 'anthropic' package. "
+                    "Install the 'anthropic' extra: pip install -e '.[anthropic]'."
+                ) from exc
+            client = anthropic.Anthropic()
+        self.client = client
+
+    def complete(
+        self,
+        system: str,
+        messages: list[dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 512,
+    ) -> LLMResponse:
+        start = time.perf_counter()
+        resp = self.client.messages.create(
+            model=self.model,
+            max_tokens=max(max_tokens, self.MIN_MAX_TOKENS),
+            system=[
+                {"type": "text", "text": system, "cache_control": self.cache_control}
+            ],
+            messages=messages,
+            output_config={"effort": self.effort},
+        )
+        text = "".join(b.text for b in resp.content if b.type == "text")
+        usage = resp.usage
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        return LLMResponse(
+            text=text,
+            model=self.model,
+            prompt_tokens=(usage.input_tokens or 0) + cache_read + cache_write,
+            completion_tokens=usage.output_tokens or 0,
+            latency_s=time.perf_counter() - start,
+            cache_creation_tokens=cache_write,
+            cache_read_tokens=cache_read,
         )
 
 
@@ -372,6 +453,7 @@ class TransformersProvider(LLMProvider):
 _REGISTRY = {
     "mock": MockProvider,
     "ollama": OllamaProvider,
+    "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,
     "gemini": GeminiProvider,
     "hf": HFInferenceProvider,

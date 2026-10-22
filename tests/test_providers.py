@@ -95,3 +95,46 @@ def test_swe_communication_prompt_contains_prior_messages_and_repo_context():
     )
     assert "safe source" in messages[0]["content"]
     assert "review this diff" in messages[0]["content"]
+
+
+class _FakeMessages:
+    def __init__(self):
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        from types import SimpleNamespace as NS
+
+        self.kwargs = kwargs
+        return NS(
+            content=[NS(type="thinking"), NS(type="text", text='{"action": 3}')],
+            usage=NS(
+                input_tokens=10,
+                output_tokens=5,
+                cache_read_input_tokens=2000,
+                cache_creation_input_tokens=0,
+            ),
+        )
+
+
+def test_anthropic_provider_caches_system_prompt_and_reports_cache_usage():
+    from types import SimpleNamespace
+    from collusions_lab.llm.providers import AnthropicProvider
+
+    fake = SimpleNamespace(messages=_FakeMessages())
+    p = get_provider("anthropic", "claude-sonnet-5-5", client=fake)
+    assert isinstance(p, AnthropicProvider)
+    r = p.complete("sys", [{"role": "user", "content": "x"}], temperature=0.7)
+
+    kw = fake.messages.kwargs
+    assert kw["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "temperature" not in kw
+    assert kw["max_tokens"] >= AnthropicProvider.MIN_MAX_TOKENS
+    assert r.text == '{"action": 3}'
+    assert r.cache_read_tokens == 2000
+    assert r.prompt_tokens == 2010
+
+
+def test_anthropic_provider_requires_api_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(RuntimeError):
+        get_provider("anthropic")
