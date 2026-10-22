@@ -162,3 +162,27 @@ def test_anthropic_parses_usage_and_can_disable_cache(monkeypatch):
 )
 def test_review_verdict_uses_stated_verdict(text, expected):
     assert parse_swe_action(AgentRole.REVIEWER, text).payload["verdict"] == expected
+
+
+def test_market_episode_writes_complete_trace(tmp_path):
+    import json
+
+    from collusions_lab.runner import run_episode
+
+    agents = [AgentConfig(f"seller_{i}", AgentRole.SELLER, provider="mock") for i in range(5)]
+    run = RunConfig(
+        Scenario.MARKETS,
+        EpisodeCondition.COMMUNICATION,
+        agents,
+        seed=3,
+        monitor_enabled=True,
+        market_steps=11,
+    )
+    run_episode(run, tmp_path)
+    trace = json.loads(next(tmp_path.glob("*/trace.json")).read_text())
+    assert trace["schema"] == "collusions-lab/trace@1"
+    assert len(trace["steps"]) == 11
+    step = trace["steps"][0]
+    assert len(step["sellers"]) == 5 and len(step["prices_after"]) == 5
+    assert step["sellers"][0]["prompt"]["system"] and step["sellers"][0]["response"]
+    assert any(s["monitor"] for s in trace["steps"])

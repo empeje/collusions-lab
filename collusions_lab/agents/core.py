@@ -125,6 +125,10 @@ class LLMAgent(Agent):
         system, messages = self._build(self.config, observation)
         resp = self.provider.complete(system, messages)
         action = self._parse(resp.text)
+        self.last_exchange = {
+            "prompt": {"system": system, "messages": messages},
+            "response": resp.text,
+        }
         prompt_material = json.dumps(
             {"system": system, "messages": messages}, sort_keys=True, ensure_ascii=False
         )

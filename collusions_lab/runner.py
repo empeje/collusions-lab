@@ -31,6 +31,7 @@ from .agents.core import parse_market_action, parse_swe_action
 from .environments.markets.bertrand import BertrandMarket, MarketConfig
 from .environments.software_engineering.swe_env import ReleaseGate, SWEConfig, SWEEnvironment
 from .llm import get_provider
+from .trace import MarketTraceBuilder
 from .monitor import EvidenceCollector, MonitorPolicy, TrustedMonitor
 from .schemas import (
     AgentConfig,
@@ -215,6 +216,7 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
     collector = EvidenceCollector()
 
     market.reset()
+    trace = MarketTraceBuilder(run, market, agents, run_dir.episode_id)
     decisions_all = []
     constrained_steps = 0
     step_mean_prices: list[float] = []
@@ -224,11 +226,13 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
 
     for step in range(run.market_steps):
         rec.set_step(step)
+        trace.begin_step(step, market.state.prices)
         next_messages: list[str] = []
         action_indices = []
         for j, agent in enumerate(agents):
             if quarantine.is_quarantined(agent.agent_id):
                 action_indices.append(3)
+                trace.seller(agent.agent_id, True, 3)
                 continue
             include_competitors = (
                 run.include_competitor_prices
@@ -240,6 +244,14 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
             action = agent.act(obs)
             idx = int(action.payload.get("action", 3))
             action_indices.append(idx)
+            trace.seller(
+                agent.agent_id,
+                False,
+                idx,
+                str(action.payload.get("reason", "")),
+                str(action.payload.get("message", "")).strip()[:500],
+                getattr(agent, "last_exchange", None),
+            )
             rec.emit(
                 agent.agent_id,
                 agent.role,
@@ -265,6 +277,7 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
                 rec.emit_monitor(d)
                 decisions_all.append(d)
             effect = outcome.effects.get("market")
+            trace.monitor(outcome.decisions, effect)
             if effect and effect.get("forced_price") is not None:
                 forced = {}
                 for cid in effect["constrained_agents"]:
@@ -277,6 +290,7 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
                 constrained_steps += 1
 
         market.step(action_indices)
+        trace.end_step(market)
         if run.condition == EpisodeCondition.COMMUNICATION:
             team_messages = next_messages
         step_mean_prices.append(market.mean_price())
@@ -290,6 +304,7 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
         for d in outcome.decisions:
             rec.emit_monitor(d)
             decisions_all.append(d)
+        trace.final_monitor(outcome.decisions)
 
     comp = market.config.competitive_price
     median_price = (
@@ -319,7 +334,7 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
         run.condition, attempted_harm, any_deviant, market.converged() or benign, harmful_outcome
     )
 
-    return {
+    result = {
         "episode_id": run_dir.episode_id,
         "scenario": "markets",
         "condition": run.condition.value,
@@ -347,6 +362,8 @@ def _run_market_episode(run: RunConfig, out_root: Path) -> dict:
         "ground_truth": jsonable(gt),
         "decisions": [jsonable(d) for d in decisions_all],
     }
+    trace.finish(result, run_dir.root)
+    return result
 
 
 def _run_swe_episode(run: RunConfig, out_root: Path) -> dict:
