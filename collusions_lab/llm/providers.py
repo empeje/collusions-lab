@@ -214,6 +214,8 @@ class AnthropicProvider(LLMProvider):
     served from cache on later turns. Cache hit/miss token counts are surfaced on
     ``LLMResponse``. Pass ``cache=False`` to disable. ``temperature`` is omitted unless
     ``send_temperature=True`` (newer Claude models reject it).
+    Thinking is disabled unless ``thinking=True``, and ``max_tokens`` is floored at
+    ``min_max_tokens`` so JSON actions are never truncated.
     """
 
     name = "anthropic"
@@ -225,6 +227,8 @@ class AnthropicProvider(LLMProvider):
         model: Optional[str] = None,
         cache: bool = True,
         send_temperature: bool = False,
+        thinking: bool = False,
+        min_max_tokens: int = 1024,
         base_url: Optional[str] = None,
         timeout: int = 120,
         **options,
@@ -237,6 +241,8 @@ class AnthropicProvider(LLMProvider):
             raise RuntimeError("ANTHROPIC_API_KEY2 / ANTHROPIC_API_KEY is not set")
         self.cache = cache
         self.send_temperature = send_temperature
+        self.thinking = thinking
+        self.min_max_tokens = min_max_tokens
         self.url = base_url or self.API_URL
         self.timeout = timeout
 
@@ -261,8 +267,10 @@ class AnthropicProvider(LLMProvider):
             "model": self.model,
             "system": [system_block],
             "messages": msgs,
-            "max_tokens": max_tokens,
+            "max_tokens": max(max_tokens, self.min_max_tokens),
         }
+        if not self.thinking:  # adaptive thinking would otherwise eat the token budget
+            payload["thinking"] = {"type": "disabled"}
         if self.send_temperature:  # newer Claude models reject `temperature`
             payload["temperature"] = temperature
         return payload
