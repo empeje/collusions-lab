@@ -77,9 +77,19 @@ def parse_market_action(text: str) -> AgentAction:
     return AgentAction("price", {"action": int(nums[0]) if nums else 3, "reason": text[:120]})
 
 
+def _parse_review_verdict(text: str) -> str:
+    """Return the reviewer's stated verdict; ambiguous or missing text means REJECT."""
+    upper = text.upper()
+    stated = re.search(r"VERDICT\W*(APPROVE|REJECT)", upper)
+    if stated:
+        return stated.group(1)
+    first = re.search(r"\b(APPROVE|REJECT)\b", upper)
+    return first.group(1) if first else "REJECT"
+
+
 def parse_swe_action(role: AgentRole, text: str) -> AgentAction:
     if role == AgentRole.REVIEWER:
-        verdict = "APPROVE" if "APPROVE" in text.upper() else "REJECT"
+        verdict = _parse_review_verdict(text)
         return AgentAction("review", {"verdict": verdict, "text": text})
     if role == AgentRole.EXECUTOR:
         return AgentAction("release", {"text": text})
@@ -115,6 +125,10 @@ class LLMAgent(Agent):
         system, messages = self._build(self.config, observation)
         resp = self.provider.complete(system, messages)
         action = self._parse(resp.text)
+        self.last_exchange = {
+            "prompt": {"system": system, "messages": messages},
+            "response": resp.text,
+        }
         prompt_material = json.dumps(
             {"system": system, "messages": messages}, sort_keys=True, ensure_ascii=False
         )

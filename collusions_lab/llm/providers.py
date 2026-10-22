@@ -4,6 +4,8 @@ Providers:
   * mock     -- deterministic, offline; used for CI and reproducible smoke tests
   * ollama   -- local open-weight models (default: qwen2.5:3b-instruct)
   * openai   -- free-tier / openai-compatible endpoints (OPENAI_API_KEY, OPENAI_BASE_URL)
+  * anthropic -- Claude via the Messages API (ANTHROPIC_API_KEY2, falls back to
+                 ANTHROPIC_API_KEY) with prompt caching enabled
   * gemini   -- Google Gemini free tier (GEMINI_API_KEY / GOOGLE_API_KEY)
   * hf       -- Hugging Face Inference API via huggingface_hub (HF_TOKEN); CPU-friendly
   * local    -- open-weight model loaded with transformers (used on Spaces/ZeroGPU)
@@ -30,6 +32,8 @@ class LLMResponse:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     latency_s: float = 0.0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 class LLMProvider(ABC):
@@ -193,6 +197,119 @@ class OpenAIProvider(LLMProvider):
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
             latency_s=time.perf_counter() - start,
+        )
+
+
+# --------------------------------------------------------------------------------------
+# Anthropic (Claude) with prompt caching
+# --------------------------------------------------------------------------------------
+
+
+class AnthropicProvider(LLMProvider):
+    """Claude via the Anthropic Messages API, with prompt caching.
+
+    The key is read from ``ANTHROPIC_API_KEY2`` (falling back to ``ANTHROPIC_API_KEY``).
+    Two ephemeral cache breakpoints are set per request: one on the system prompt and
+    one on the last message block, so the stable prefix of a growing conversation is
+    served from cache on later turns. Cache hit/miss token counts are surfaced on
+    ``LLMResponse``. Pass ``cache=False`` to disable. ``temperature`` is omitted unless
+    ``send_temperature=True`` (newer Claude models reject it).
+    Thinking is disabled unless ``thinking=True``, and ``max_tokens`` is floored at
+    ``min_max_tokens`` so JSON actions are never truncated.
+    """
+
+    name = "anthropic"
+    API_URL = "https://api.anthropic.com/v1/messages"
+    API_VERSION = "2023-06-01"
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        cache: bool = True,
+        send_temperature: bool = False,
+        thinking: bool = False,
+        min_max_tokens: int = 1024,
+        base_url: Optional[str] = None,
+        timeout: int = 120,
+        **options,
+    ):
+        super().__init__(model or "claude-haiku-5-5", **options)
+        self.api_key = os.environ.get("ANTHROPIC_API_KEY2") or os.environ.get(
+            "ANTHROPIC_API_KEY", ""
+        )
+        if not self.api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY2 / ANTHROPIC_API_KEY is not set")
+        self.cache = cache
+        self.send_temperature = send_temperature
+        self.thinking = thinking
+        self.min_max_tokens = min_max_tokens
+        self.url = base_url or self.API_URL
+        self.timeout = timeout
+
+    def _build_payload(
+        self,
+        system: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+    ) -> dict[str, Any]:
+        cache_ctl = {"type": "ephemeral"} if self.cache else None
+        system_block: dict[str, Any] = {"type": "text", "text": system}
+        if cache_ctl:
+            system_block["cache_control"] = cache_ctl
+        msgs: list[dict[str, Any]] = []
+        for i, m in enumerate(messages):
+            block: dict[str, Any] = {"type": "text", "text": m["content"]}
+            if cache_ctl and i == len(messages) - 1:
+                block["cache_control"] = cache_ctl
+            msgs.append({"role": m["role"], "content": [block]})
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "system": [system_block],
+            "messages": msgs,
+            "max_tokens": max(max_tokens, self.min_max_tokens),
+        }
+        if not self.thinking:  # adaptive thinking would otherwise eat the token budget
+            payload["thinking"] = {"type": "disabled"}
+        if self.send_temperature:  # newer Claude models reject `temperature`
+            payload["temperature"] = temperature
+        return payload
+
+    def complete(
+        self,
+        system: str,
+        messages: list[dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 512,
+    ) -> LLMResponse:
+        payload = self._build_payload(system, messages, temperature, max_tokens)
+        start = time.perf_counter()
+        resp = requests.post(
+            self.url,
+            headers={
+                "x-api-key": self.api_key,
+                "anthropic-version": self.API_VERSION,
+                "content-type": "application/json",
+            },
+            json=cast(Any, payload),
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = "".join(
+            b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"
+        )
+        usage = data.get("usage", {})
+        created = usage.get("cache_creation_input_tokens", 0) or 0
+        read = usage.get("cache_read_input_tokens", 0) or 0
+        return LLMResponse(
+            text=text,
+            model=data.get("model", self.model),
+            prompt_tokens=(usage.get("input_tokens", 0) or 0) + created + read,
+            completion_tokens=usage.get("output_tokens", 0) or 0,
+            latency_s=time.perf_counter() - start,
+            cache_creation_tokens=created,
+            cache_read_tokens=read,
         )
 
 
@@ -373,6 +490,7 @@ _REGISTRY = {
     "mock": MockProvider,
     "ollama": OllamaProvider,
     "openai": OpenAIProvider,
+    "anthropic": AnthropicProvider,
     "gemini": GeminiProvider,
     "hf": HFInferenceProvider,
     "local": TransformersProvider,

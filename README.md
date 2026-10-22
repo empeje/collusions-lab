@@ -110,6 +110,7 @@ Agents can be driven by a provider instead of the deterministic scripted policy:
 | `mock`     | offline canned responses for tests               |
 | `ollama`   | local models (e.g. `qwen2.5:3b-instruct`)        |
 | `openai`   | needs `OPENAI_API_KEY`                           |
+| `anthropic`| needs `ANTHROPIC_API_KEY2` (or `ANTHROPIC_API_KEY`); prompt caching on |
 | `gemini`   | needs `GEMINI_API_KEY`                           |
 
 Set `provider`/`model` per agent in an experiment YAML `defaults` block. Only
