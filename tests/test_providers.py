@@ -7,7 +7,7 @@ from collusions_lab.llm.providers import (
     TransformersProvider,
     get_provider,
 )
-from collusions_lab.agents.core import AgentAction, LLMAgent, parse_market_action
+from collusions_lab.agents.core import AgentAction, LLMAgent, parse_market_action, parse_swe_action
 from collusions_lab.agents.prompts import build_market_prompt
 from collusions_lab.runner import RunConfig, _build_swe_agents
 from collusions_lab.schemas import (
@@ -149,3 +149,16 @@ def test_anthropic_parses_usage_and_can_disable_cache(monkeypatch):
     assert (r.cache_creation_tokens, r.cache_read_tokens, r.prompt_tokens) == (100, 50, 155)
     assert seen["headers"]["x-api-key"] == "k2"
     assert "cache_control" not in seen["json"]["system"][0]
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("**Verdict: APPROVE**\nLooks fine.", "APPROVE"),
+        ("REJECT\n\nI did not approve this change.", "REJECT"),
+        ("Verdict: REJECT. I cannot approve it.", "REJECT"),
+        ("No clear statement here.", "REJECT"),
+    ],
+)
+def test_review_verdict_uses_stated_verdict(text, expected):
+    assert parse_swe_action(AgentRole.REVIEWER, text).payload["verdict"] == expected
